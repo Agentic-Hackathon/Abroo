@@ -23,6 +23,7 @@ export { getDiskTools } from './disk-tools.js';
 export { getNetworkTools } from './network-tools.js';
 export { getUserTools } from './user-tools.js';
 export { getObservabilityTools } from './observability-tools.js';
+export { getDiagnoseTools } from './diagnose-tools.js';
 
 import { ToolDefinition } from './types.js';
 import { getConsolidatedTools } from './consolidated-tools.js';
@@ -41,6 +42,7 @@ import { getDiskTools } from './disk-tools.js';
 import { getNetworkTools } from './network-tools.js';
 import { getUserTools } from './user-tools.js';
 import { getObservabilityTools } from './observability-tools.js';
+import { getDiagnoseTools } from './diagnose-tools.js';
 
 // Configuration for tool mode
 const USE_CONSOLIDATED_TOOLS = process.env.LIARA_MCP_CONSOLIDATED === 'true';
@@ -52,7 +54,10 @@ const USE_CONSOLIDATED_TOOLS = process.env.LIARA_MCP_CONSOLIDATED === 'true';
 export function getAllTools(): ToolDefinition[] {
     if (USE_CONSOLIDATED_TOOLS) {
         // Consolidated mode: fewer, more powerful tools
-        return getConsolidatedTools();
+        return [
+            ...getConsolidatedTools(),
+            ...getDiagnoseTools(),
+        ];
     } else {
         // Individual mode: granular tools (legacy)
         return [
@@ -71,6 +76,7 @@ export function getAllTools(): ToolDefinition[] {
             ...getNetworkTools(),
             ...getUserTools(),
             ...getObservabilityTools(),
+            ...getDiagnoseTools(),
         ];
     }
 }

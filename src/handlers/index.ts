@@ -21,6 +21,7 @@ import { handleDiskTools } from './disk-handlers.js';
 import { handleNetworkTools } from './network-handlers.js';
 import { handleUserTools } from './user-handlers.js';
 import { handleObservabilityTools } from './observability-handlers.js';
+import { handleDiagnoseTools } from './diagnose-handlers.js';
 
 export { LiaraClient, ToolResult, extractPagination } from './types.js';
 
@@ -34,6 +35,13 @@ export async function handleToolCall(
     args: any
 ): Promise<ToolResult> {
     try {
+        // Diagnose tools are available in BOTH modes, so they are checked first
+        // (before the consolidated / individual branching).
+        const diagnoseResult = await handleDiagnoseTools(client, name, args);
+        if (diagnoseResult !== null) {
+            return diagnoseResult;
+        }
+
         // Check if using consolidated tools mode
         const useConsolidated = process.env.LIARA_MCP_CONSOLIDATED === 'true';
 

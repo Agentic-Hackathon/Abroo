@@ -351,6 +351,7 @@ export interface MetricsSummary {
 export interface LogEntry {
     timestamp: string;
     message: string;
+    releaseId?: string; 
     level?: 'info' | 'warn' | 'error' | 'debug';
     source?: string;
 }
