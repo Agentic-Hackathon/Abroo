@@ -1,19 +1,21 @@
 import type { LiaraClient } from '../handlers/types.js';
 import { getAppMetrics, getAppLogs } from '../services/observability.js';
-import type { DiagnoseContext, EnvVar } from './types.js';
-import { logLine, parseSince, toArray } from './util.js';
+import type { DatasetName, DiagnoseContext, EnvVar, LogLine } from './types.js';
+import { parseSince } from './util.js';
+
+const LOG_LIMIT = 500;
+const RELEASES_COUNT = 50;   // اگر API مقدار بزرگ را رد کرد، به 10 برگردان
 
 function reason(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
 /**
- * Collects all data ONCE, in parallel. A failing endpoint only marks that dataset
- * as unavailable; it never aborts the diagnosis.
- *
- * VERIFY: endpoints marked below are best guesses based on the other services
- * (e.g. get_release uses /v2/projects/{app}/releases/{id}). If you already have
- * getApp()/listReleases() in services/, call those instead.
+ * Verified against the real API:
+ *  - GET /v1/projects/{app}            → { project: {...} }
+ *  - GET /v1/projects/{app}/releases   → { total, currentRelease, readyReleasesCount, releases: [...] }
+ *  - logs: v2 (inside getAppLogs); teamID is added by LiaraClient
+ * Still unverified: getAppMetrics endpoints, /v1/plans/{id}.
  */
 export async function collectContext(
   client: LiaraClient,
@@ -26,26 +28,34 @@ export async function collectContext(
   const sinceSec = Math.floor(sinceDate.getTime() / 1000);
 
   const [appR, metricsR, logsR, releasesR] = await Promise.allSettled([
-  client.get<Record<string, any>>(`/v1/projects/${appName}`),
-  getAppMetrics(client, appName),
-  getAppLogs(client, appName, { since: String(sinceSec) }),
-  client.get<unknown>(`/v1/projects/${appName}/releases`, { page: 1, count: 10 }),
-]);
-  const unavailable: Record<string, string> = {};
-  const ok = <T>(name: string, r: PromiseSettledResult<T>): T | undefined => {
+    client.get<Record<string, any>>(`/v1/projects/${appName}`),
+    getAppMetrics(client, appName),
+    getAppLogs(client, appName, { since: sinceSec, limit: LOG_LIMIT }),
+    client.get<Record<string, any>>(`/v1/projects/${appName}/releases`, { page: 1, count: RELEASES_COUNT }),
+  ]);
+
+  const unavailable: Partial<Record<DatasetName, string>> = {};
+  const ok = <T>(name: DatasetName, r: PromiseSettledResult<T>): T | undefined => {
     if (r.status === 'fulfilled') return r.value;
     unavailable[name] = reason(r.reason);
     return undefined;
   };
 
-  const app = ok('app', appR);
-  const metrics = ok('metrics', metricsR);
-  const logsRaw = ok('logs', logsR);
-  const releasesRaw = ok('releases', releasesR);
+  // ── app: unwrap { project }, و envs را از آبجکت جدا کن
+  const appRaw = ok('app', appR);
+  const project: Record<string, any> | undefined = appRaw?.project ?? appRaw;
+  if (appRaw && !project) unavailable.app = 'unexpected response shape';
+  const { envs: rawEnvs, ...appSafe } = (project ?? {}) as Record<string, any>;
 
-  // Plan (needs app first). VERIFY the field names that hold the plan id.
+  const envs: EnvVar[] = Array.isArray(rawEnvs)
+    ? rawEnvs
+        .filter((e: any) => e && typeof e.key === 'string')
+        .map((e: any) => ({ key: e.key, value: e.value === undefined ? undefined : String(e.value) }))
+    : [];
+
+  // ── plan (بعد از app)
   let plan: Record<string, any> | undefined;
-  const planId = app?.planID ?? app?.planId ?? app?.plan?._id ?? (typeof app?.plan === 'string' ? app.plan : undefined);
+  const planId = project?.planID ?? project?.planId ?? project?.plan?._id ?? (typeof project?.plan === 'string' ? project.plan : undefined);
   if (planId) {
     try {
       plan = await client.get<Record<string, any>>(`/v1/plans/${planId}`);
@@ -54,24 +64,49 @@ export async function collectContext(
     }
   }
 
-  // Env vars: VERIFY where they live on the app object.
-  const rawEnvs = app?.envs ?? app?.envVars ?? app?.environmentVariables ?? [];
-  const envs: EnvVar[] = Array.isArray(rawEnvs)
-    ? rawEnvs
-        .filter((e: any) => e && typeof e.key === 'string')
-        .map((e: any) => ({ key: e.key, value: e.value === undefined ? undefined : String(e.value) }))
-    : [];
+  // ── releases: آبجکت → آرایه + currentRelease + نگاشت id→tag
+  const relRaw = ok('releases', releasesR);
+  const releases: Array<Record<string, any>> = Array.isArray(relRaw) ? relRaw : (relRaw?.releases ?? []);
+  const currentReleaseId: string | undefined = Array.isArray(relRaw) ? undefined : relRaw?.currentRelease;
+  const releaseTags: Record<string, string> = Object.fromEntries(
+    releases.filter((r) => r?._id && r?.tag).map((r) => [r._id, String(r.tag)]),   // VERIFY: نام فیلد tag را در پاسخ واقعی چک کن
+  );
+
+  // ── logs: ساختاریافته نگه دار (نه رشته)
+  const logsRaw = ok('logs', logsR);
+  let logs: LogLine[] = [];
+  if (logsRaw !== undefined) {
+    if (Array.isArray(logsRaw)) {
+      logs = logsRaw.map((l: any) => ({
+        timestamp: l.timestamp ?? l.datetime ?? '',
+        message: String(l.message ?? ''),
+        source: l.source ?? l.type,
+        releaseId: l.releaseId,
+      }));
+    } else {
+      unavailable.logs = 'unexpected response shape';
+    }
+  }
 
   return {
     appName,
     since: since ?? '1h',
     sinceDate,
     now,
-    app,
+    app: Object.keys(appSafe).length ? appSafe : undefined,
     plan,
-    metrics,
-    logs: toArray(logsRaw).map(logLine),
-    releases: toArray(releasesRaw),
+    metrics: ok('metrics', metricsR),
+    logs,
+    logSampling: {
+      lines: logs.length,
+      from: logs[0]?.timestamp,
+      to: logs.at(-1)?.timestamp,
+      limit: LOG_LIMIT,
+      truncated: logs.length >= LOG_LIMIT,
+    },
+    releases,
+    currentReleaseId,
+    releaseTags,
     envs,
     unavailable,
   };

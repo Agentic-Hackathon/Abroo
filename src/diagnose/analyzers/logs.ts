@@ -13,32 +13,39 @@ interface Rule {
 const RULES: Rule[] = [
   {
     id: 'oom',
-    pattern: /(out of memory|OOMKilled|heap out of memory|Killed process|MemoryError|Cannot allocate memory)/i,
+    pattern:
+      /(out of memory|OOMKilled|heap out of memory|Killed process|MemoryError|Cannot allocate memory)/i,
     severity: 'critical',
     title: 'Out-of-memory errors',
-    suggestion: 'The app exceeds its memory limit. Move to a bigger plan or reduce memory usage.',
+    suggestion:
+      'Verify memory pressure and resource usage. If the memory limit is confirmed to be insufficient, consider a larger plan or reducing memory consumption.',
     suggestedTool: 'liara_resize_app',
   },
   {
     id: 'missing-module',
-    pattern: /(Cannot find module|ModuleNotFoundError|No module named|ClassNotFoundException|cannot load such file)/i,
+    pattern:
+      /(Cannot find module|ModuleNotFoundError|No module named|ClassNotFoundException|cannot load such file)/i,
     severity: 'critical',
     title: 'Missing dependency / module at startup',
-    suggestion: 'A dependency is missing from the build. Check package manifest and redeploy.',
+    suggestion:
+      'Check the package manifest, dependency installation, build output, and deployment configuration.',
   },
   {
     id: 'port-in-use',
     pattern: /(EADDRINUSE|address already in use)/i,
     severity: 'warning',
     title: 'Port already in use',
-    suggestion: 'Make sure the app listens on the PORT Liara provides and starts only once.',
+    suggestion:
+      'Verify that the app listens on the PORT provided by Liara and does not start duplicate server instances.',
   },
   {
     id: 'db-auth',
-    pattern: /(ER_ACCESS_DENIED|password authentication failed|authentication failed|Access denied for user|SASL)/i,
+    pattern:
+      /(ER_ACCESS_DENIED|password authentication failed|authentication failed|Access denied for user|SASL)/i,
     severity: 'critical',
     title: 'Database authentication failure',
-    suggestion: 'Credentials in env vars are likely wrong or rotated. Verify the connection info.',
+    suggestion:
+      'Verify database credentials and connection settings. Do not expose credential values in logs or diagnostic output.',
     suggestedTool: 'liara_get_database_connection',
   },
   {
@@ -46,114 +53,180 @@ const RULES: Rule[] = [
     pattern: /(ECONNREFUSED|connection refused)/i,
     severity: 'warning',
     title: 'Connection refused to a dependency',
-    suggestion: 'A database/service the app talks to is down or the host/port is wrong.',
+    suggestion:
+      'Verify that the target service is running and that its hostname, port, and network configuration are correct.',
   },
   {
     id: 'dns',
-    pattern: /(ENOTFOUND|getaddrinfo|Name or service not known|could not resolve host)/i,
+    pattern:
+      /(ENOTFOUND|getaddrinfo|Name or service not known|could not resolve host)/i,
     severity: 'warning',
     title: 'DNS resolution failures',
-    suggestion: 'A hostname used by the app does not resolve. Check hosts in env vars.',
+    suggestion:
+      'Verify the hostname and DNS configuration for the affected dependency.',
   },
   {
     id: 'disk-full',
-    pattern: /(ENOSPC|no space left on device|disk quota exceeded)/i,
+    pattern:
+      /(ENOSPC|no space left on device|disk quota exceeded)/i,
     severity: 'critical',
-    title: 'Disk is full',
-    suggestion: 'Free space or enlarge the attached disk.',
+    title: 'Disk space exhausted',
+    suggestion:
+      'Inspect disk usage and identify unnecessary files before freeing space or increasing disk capacity.',
     suggestedTool: 'liara_resize_disk',
   },
   {
     id: 'timeout',
-    pattern: /(ETIMEDOUT|timed out|timeout exceeded|upstream request timeout)/i,
+    pattern:
+      /(ETIMEDOUT|timed out|timeout exceeded|upstream request timeout)/i,
     severity: 'warning',
     title: 'Timeouts',
-    suggestion: 'Requests to a dependency (or from the proxy) are timing out. Check dependency health and resource usage.',
+    suggestion:
+      'Investigate dependency health, network latency, request duration, and resource usage.',
   },
   {
     id: 'crash',
-    pattern: /(UnhandledPromiseRejection|uncaught exception|Traceback \(most recent call last\)|panic:|segmentation fault|fatal error)/i,
+    pattern:
+      /(UnhandledPromiseRejection|uncaught exception|Traceback \(most recent call last\)|panic:|segmentation fault|fatal error)/i,
     severity: 'warning',
     title: 'Unhandled exceptions / crashes',
-    suggestion: 'The app throws unhandled errors. Inspect the stack traces in the evidence.',
+    suggestion:
+      'Inspect the associated stack trace and identify the exception that caused the failure.',
   },
 ];
 
-const START_LINE = /(server (has )?(started|listening)|listening on (port|:|\d)|started server|application startup complete)/i;
+const START_LINE =
+  /(server (has )?(started|listening)|listening on (port|:|\d)|started server|application startup complete)/i;
+
 const MAX_EVIDENCE = 3;
 
-const normalize = (l: string) => l.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+function normalize(line: string): string {
+  return line
+    .replace(/\d+/g, '#')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 function sample(lines: string[]): string[] {
   const seen = new Set<string>();
-  const out: string[] = [];
-  for (const l of lines) {
-    const k = normalize(l);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(truncate(l.trim()));
-    if (out.length >= MAX_EVIDENCE) break;
+  const result: string[] = [];
+
+  for (const line of lines) {
+    const normalized = normalize(line);
+
+    if (!normalized || seen.has(normalized)) continue;
+
+    seen.add(normalized);
+    result.push(truncate(line.trim()));
+
+    if (result.length >= MAX_EVIDENCE) break;
   }
-  return out;
+
+  return result;
 }
 
 export const logsAnalyzer: Analyzer = {
   name: 'logs',
-  description: 'Known failure patterns in recent logs (OOM, missing module, DB auth, ENOSPC, crash loops, ...)',
+  description:
+    'Known failure patterns in recent logs (OOM, missing module, DB auth, ENOSPC, crashes, and restart loops)',
   defaultEnabled: true,
-  analyze(ctx) {
-    if (ctx.unavailable.logs) return [];
+  requires: ['logs'],
+
+  analyze(ctx): Finding[] {
     const findings: Finding[] = [];
 
     if (ctx.logs.length === 0) {
       return [
         {
           analyzer: 'logs',
+          id: 'no-log-lines',
           severity: 'info',
-          title: `No log lines in the last ${ctx.since}`,
+          basis: 'observed',
+          title: `No log lines in the sampled window (${ctx.since})`,
           evidence: [],
-          suggestion: 'The app may be stopped, idle, or not writing to stdout/stderr. Try a longer window.',
+          suggestion:
+            'No log lines were returned for the sampled window. Check log collection, app activity, and whether a longer time window is needed.',
         },
       ];
     }
 
     for (const rule of RULES) {
-      const hits = ctx.logs.filter((l) => rule.pattern.test(l));
+      const hits = ctx.logs.filter((line) =>
+        rule.pattern.test(line.message),
+      );
+
       if (hits.length === 0) continue;
+
       findings.push({
         analyzer: 'logs',
+        id: rule.id,
         severity: rule.severity,
+        basis: 'observed',
         title: `${rule.title} (${hits.length}×)`,
-        evidence: sample(hits),
+        evidence: sample(hits.map((line) => line.message)),
+        stats: {
+          count: hits.length,
+          firstSeen: hits[0].timestamp,
+          lastSeen: hits[hits.length - 1].timestamp,
+          ...(hits[0].releaseId &&
+          ctx.releaseTags[hits[0].releaseId]
+            ? { releaseTag: ctx.releaseTags[hits[0].releaseId] }
+            : {}),
+        },
         suggestion: rule.suggestion,
-        suggestedTool: rule.suggestedTool,
+        ...(rule.suggestedTool
+          ? { suggestedTool: rule.suggestedTool }
+          : {}),
       });
     }
 
-    const starts = ctx.logs.filter((l) => START_LINE.test(l));
+    const starts = ctx.logs.filter((line) =>
+      START_LINE.test(line.message),
+    );
+
     if (starts.length >= 3) {
       findings.push({
         analyzer: 'logs',
+        id: 'probable-restart-loop',
         severity: 'warning',
+        basis: 'hypothesis',
         title: `Probable restart loop: startup message seen ${starts.length}× in ${ctx.since}`,
-        evidence: sample(starts),
-        suggestion: 'The app keeps restarting. Look for the error just before each startup line.',
+        evidence: sample(starts.map((line) => line.message)),
+        stats: {
+          count: starts.length,
+          firstSeen: starts[0].timestamp,
+          lastSeen: starts[starts.length - 1].timestamp,
+        },
+        suggestion:
+          'First confirm that the startup messages represent separate restarts. Then inspect the errors immediately before each startup.',
       });
     }
 
     if (findings.length === 0) {
-      const errs = ctx.logs.filter((l) => ERROR_LINE.test(l));
-      if (errs.length > 0) {
+      const errors = ctx.logs.filter((line) =>
+        ERROR_LINE.test(line.message),
+      );
+
+      if (errors.length > 0) {
         findings.push({
           analyzer: 'logs',
+          id: 'unclassified-errors',
           severity: 'info',
-          title: `${errs.length} error-like log lines, no known pattern matched`,
-          evidence: sample(errs),
-          suggestion: 'Inspect these lines manually (or fetch more logs with liara_get_logs).',
+          basis: 'observed',
+          title: `${errors.length} error-like log lines, no known pattern matched`,
+          evidence: sample(errors.map((line) => line.message)),
+          stats: {
+            count: errors.length,
+            firstSeen: errors[0].timestamp,
+            lastSeen: errors[errors.length - 1].timestamp,
+          },
+          suggestion:
+            'Review these lines and collect additional log context if needed.',
           suggestedTool: 'liara_get_logs',
         });
       }
     }
+
     return findings;
   },
 };

@@ -1,54 +1,127 @@
+
 import type { Analyzer, Finding } from '../types.js';
 import { ERROR_LINE } from '../util.js';
 
-const FAILED = /(fail|error|cancel)/i;
-const GOOD = /(success|succeeded|deployed|active|running|ready)/i;
+const FAILED = /\b(fail(?:ed|ure)?|error|cancel(?:led|ed)?|crash(?:ed)?)\b/i;
+const GOOD = /\b(success(?:ful)?|succeeded|deployed|active|running|ready)\b/i;
 
-const releaseId = (r: Record<string, any>) => String(r.releaseID ?? r._id ?? r.id ?? 'unknown');
-const releaseTime = (r: Record<string, any>) => {
-  const t = Date.parse(String(r.createdAt ?? ''));
-  return Number.isNaN(t) ? 0 : t;
+type ReleaseRecord = {
+  releaseID?: string;
+  _id?: string;
+  id?: string;
+  createdAt?: string | number | Date;
+  status?: string;
 };
+
+function releaseId(release: ReleaseRecord): string {
+  return String(
+    release.releaseID ?? release._id ?? release.id ?? 'unknown',
+  );
+}
+
+function releaseTime(release: ReleaseRecord): number {
+  const raw = release.createdAt;
+
+  if (raw === undefined || raw === null) return 0;
+
+  const time = new Date(raw).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
 
 export const deploymentAnalyzer: Analyzer = {
   name: 'deployment',
-  description: 'Latest release state and correlation of errors with a recent release',
+  description:
+    'Latest release state and correlation of errors with a recent release',
   defaultEnabled: true,
-  analyze(ctx) {
-    if (ctx.releases.length === 0) return [];
-    const sorted = [...ctx.releases].sort((a, b) => releaseTime(b) - releaseTime(a));
-    const latest = sorted[0];
-    const previousGood = sorted.slice(1).find((r) => GOOD.test(String(r.status ?? '')));
-    const findings: Finding[] = [];
+  requires: ['releases', 'logs'],
 
+  analyze(ctx): Finding[] {
+    if (ctx.releases.length === 0) return [];
+
+    const sorted = [...ctx.releases].sort(
+      (a, b) => releaseTime(b) - releaseTime(a),
+    );
+
+    const latest = sorted[0];
+    if (!latest) return [];
+
+    const previousGood = sorted
+      .slice(1)
+      .find((release) => GOOD.test(String(release.status ?? '')));
+
+    const findings: Finding[] = [];
     const status = String(latest.status ?? '');
+    const latestId = releaseId(latest);
+    const createdAt = latest.createdAt
+      ? String(latest.createdAt)
+      : 'n/a';
+
     if (status && FAILED.test(status)) {
       findings.push({
         analyzer: 'deployment',
+        id: 'latest-release-failed',
         severity: 'critical',
+        basis: 'observed',
         title: `Latest release failed (status: ${status})`,
-        evidence: [`release=${releaseId(latest)}`, `createdAt=${latest.createdAt ?? 'n/a'}`]
-          .concat(previousGood ? [`lastGoodRelease=${releaseId(previousGood)}`] : []),
+        evidence: [
+          `release=${latestId}`,
+          `createdAt=${createdAt}`,
+          ...(previousGood
+            ? [`lastGoodRelease=${releaseId(previousGood)}`]
+            : []),
+        ],
         suggestion: previousGood
-          ? 'Roll back to the last good release while you fix the build.'
-          : 'Check the build logs and redeploy.',
-        suggestedTool: previousGood ? 'liara_rollback_release' : undefined,
+          ? 'Consider rolling back to the last known-good release while investigating the failure.'
+          : 'Inspect the build and deployment logs, fix the cause, and redeploy.',
+        ...(previousGood
+          ? { suggestedTool: 'liara_rollback_release' }
+          : {}),
       });
+
       return findings;
     }
 
-    const errorCount = ctx.logs.filter((l) => ERROR_LINE.test(l)).length;
-    if (releaseTime(latest) >= ctx.sinceDate.getTime() && errorCount >= 3) {
+    const latestReleaseTime = releaseTime(latest);
+    const sinceTime = ctx.sinceDate.getTime();
+
+    const errorLines = ctx.logs.filter((line) =>
+      ERROR_LINE.test(line.message),
+    );
+
+    if (
+      latestReleaseTime > 0 &&
+      latestReleaseTime >= sinceTime &&
+      errorLines.length >= 3
+    ) {
       findings.push({
         analyzer: 'deployment',
+        id: 'errors-after-release',
         severity: 'warning',
-        title: `${errorCount} error lines since a release created inside the window`,
-        evidence: [`release=${releaseId(latest)}`, `createdAt=${latest.createdAt}`]
-          .concat(previousGood ? [`previousGoodRelease=${releaseId(previousGood)}`] : []),
-        suggestion: 'Errors may have started with this release. Compare behaviour before/after; roll back if confirmed.',
-        suggestedTool: previousGood ? 'liara_rollback_release' : 'liara_list_releases',
+        basis: 'hypothesis',
+        title: `${errorLines.length} error-like log lines found during a window containing a recent release`,
+        evidence: [
+          `release=${latestId}`,
+          `createdAt=${createdAt}`,
+          ...(previousGood
+            ? [`previousGoodRelease=${releaseId(previousGood)}`]
+            : []),
+          ...errorLines
+            .slice(0, 3)
+            .map((line) => line.message.slice(0, 200)),
+        ],
+        stats: {
+          count: errorLines.length,
+          firstSeen: errorLines[0]?.timestamp,
+          lastSeen: errorLines[errorLines.length - 1]?.timestamp,
+        },
+        suggestion:
+          'The errors may be related to this release, but timing alone does not prove causation. Compare logs and behavior before and after deployment.',
+        suggestedTool: previousGood
+          ? 'liara_rollback_release'
+          : 'liara_list_releases',
       });
     }
+
     return findings;
   },
 };

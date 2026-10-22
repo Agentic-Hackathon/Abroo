@@ -1,44 +1,77 @@
 import type { Analyzer, Finding } from '../types.js';
 
-const PLACEHOLDER = /^(changeme|change_me|your[_-].*|xxx+|todo|tbd|example|<.*>|\$\{.*\})$/i;
-const IMPORTANT = /(DATABASE_URL|DB_(HOST|PASSWORD|USER|NAME)|MONGO.*URI|REDIS_URL|SECRET|API_KEY|TOKEN)/i;
+const PLACEHOLDER =
+  /^(changeme|change_me|your[_-].*|xxx+|todo|tbd|example|<.*>|\$\{.*\})$/i;
 
-/** NOTE: env VALUES are never put into findings, only key names. */
+const IMPORTANT =
+  /(DATABASE_URL|DB_(HOST|PASSWORD|USER|NAME)|MONGO.*URI|REDIS_URL|SECRET|API_KEY|TOKEN)/i;
+
+/** Environment variable values must never appear in findings. */
 export const configAnalyzer: Analyzer = {
   name: 'config',
-  description: 'Environment variables that are empty or still placeholders',
+  description:
+    'Environment variables that are empty or still placeholders',
   defaultEnabled: true,
-  analyze(ctx) {
+  requires: ['envs'],
+
+  analyze(ctx): Finding[] {
     if (ctx.envs.length === 0) return [];
+
     const empty: string[] = [];
     const placeholder: string[] = [];
-    for (const e of ctx.envs) {
-      const v = (e.value ?? '').trim();
-      if (v === '') empty.push(e.key);
-      else if (PLACEHOLDER.test(v)) placeholder.push(e.key);
+
+    for (const env of ctx.envs) {
+      const value = (env.value ?? '').trim();
+
+      if (value === '') {
+        empty.push(env.key);
+      } else if (PLACEHOLDER.test(value)) {
+        placeholder.push(env.key);
+      }
     }
+
     const findings: Finding[] = [];
-    const importantEmpty = empty.filter((k) => IMPORTANT.test(k));
+
+    const importantEmpty = empty.filter((key) =>
+      IMPORTANT.test(key),
+    );
+
     if (importantEmpty.length > 0) {
       findings.push({
         analyzer: 'config',
+        id: 'important-env-empty',
         severity: 'warning',
-        title: `Important env vars are empty: ${importantEmpty.join(', ')}`,
-        evidence: importantEmpty.map((k) => `${k}=<empty>`),
-        suggestion: 'Set real values for these variables.',
+        basis: 'observed',
+        title: 'Important environment variables are empty',
+        evidence: importantEmpty.map((key) => `${key}=<empty>`),
+        stats: {
+          count: importantEmpty.length,
+        },
+        suggestion:
+          'Verify that these variables are required by the application and configure their values securely.',
         suggestedTool: 'liara_set_env_vars',
       });
     }
+
     if (placeholder.length > 0) {
       findings.push({
         analyzer: 'config',
+        id: 'env-placeholder-values',
         severity: 'warning',
-        title: `Env vars still look like placeholders: ${placeholder.join(', ')}`,
-        evidence: placeholder.map((k) => `${k}=<placeholder>`),
-        suggestion: 'Replace placeholder values with real configuration.',
+        basis: 'observed',
+        title: 'Environment variables appear to contain placeholders',
+        evidence: placeholder.map(
+          (key) => `${key}=<placeholder>`,
+        ),
+        stats: {
+          count: placeholder.length,
+        },
+        suggestion:
+          'Verify whether these values are intentional. Replace placeholders with valid configuration where necessary.',
         suggestedTool: 'liara_set_env_vars',
       });
     }
+
     return findings;
   },
 };
