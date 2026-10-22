@@ -37,14 +37,14 @@ export const statusAnalyzer: Analyzer = {
       });
     }
 
-    if (app.readOnly === true || app.isReadOnly === true) {
+    if (app.readOnlyRootFilesystem === true || app.readOnly === true || app.isReadOnly === true) {
       findings.push({
         analyzer: 'status',
         id: 'app-read-only',
         severity: 'warning',
         basis: 'observed',
         title: 'App is in read-only mode',
-        evidence: ['readOnly=true'],
+        evidence: ['readOnlyRootFilesystem=true'],
         suggestion:
           'If the app needs to write to its filesystem, verify the deployment requirements and disable read-only mode if appropriate.',
         suggestedTool: 'liara_set_read_only',

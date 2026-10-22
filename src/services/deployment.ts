@@ -2,6 +2,7 @@ import { LiaraClient } from '../api/client.js';
 import { DeployReleaseResponse, DeployReleaseRequest, DeploySourceResponse, PaginationOptions, paginationToParams } from '../api/types.js';
 import { validateAppName, validateRequired, unwrapApiResponse } from '../utils/errors.js';
 import { createReadStream } from 'fs';
+import { basename } from 'path';
 import FormData from 'form-data';
 
 /**
@@ -18,8 +19,8 @@ export async function uploadSource(
 
     // Create FormData with file stream
     const formData = new FormData();
-    const fileName = filePath.split('/').pop() || 'source.tar.gz';
-    formData.append('source', createReadStream(filePath), {
+    const fileName = basename(filePath) || 'source.tar.gz';
+    formData.append('file', createReadStream(filePath), {
         filename: fileName,
         contentType: 'application/gzip',
     });
@@ -51,69 +52,56 @@ export async function deployRelease(
 /**
  * List releases for an app
  */
+export interface LiaraRelease {
+    _id?: string;
+    releaseID?: string;
+    sourceID?: string;
+    state?: string;
+    status?: string; // Legacy fallback only; documented response uses state.
+    createdAt?: string;
+    tag?: string;
+}
+
+/** GET /v1/projects/{name}/releases returns {releases: [...]}. */
 export async function listReleases(
     client: LiaraClient,
     appName: string,
     pagination?: PaginationOptions
-): Promise<Array<{
-    _id: string;
-    releaseID: string;
-    sourceID: string;
-    status: string;
-    createdAt: string;
-}>> {
+): Promise<LiaraRelease[]> {
     validateAppName(appName);
     const params = paginationToParams(pagination);
-    const response = await client.get<any>(`/v2/projects/${appName}/releases`, params);
-    return unwrapApiResponse<Array<{
-        _id: string;
-        releaseID: string;
-        sourceID: string;
-        status: string;
-        createdAt: string;
-    }>>(response, ['releases', 'data', 'items']);
+    const response = await client.get<any>(`/v1/projects/${appName}/releases`, params);
+    return unwrapApiResponse<LiaraRelease[]>(response, ['releases', 'data', 'items']);
 }
 
 /**
- * Get details of a specific release
+ * The public PaaS API documents collection retrieval. Avoid an invented
+ * release-by-ID URL: obtain the collection and match a stable ID or tag.
  */
 export async function getRelease(
     client: LiaraClient,
     appName: string,
     releaseID: string
-): Promise<{
-    _id: string;
-    releaseID: string;
-    sourceID: string;
-    status: string;
-    createdAt: string;
-    envVars?: Array<{ key: string; value: string }>;
-}> {
+): Promise<LiaraRelease> {
     validateAppName(appName);
     validateRequired(releaseID, 'Release ID');
-    return await client.get<{
-        _id: string;
-        releaseID: string;
-        sourceID: string;
-        status: string;
-        createdAt: string;
-        envVars?: Array<{ key: string; value: string }>;
-    }>(`/v2/projects/${appName}/releases/${releaseID}`);
+    const releases = await listReleases(client, appName);
+    const record = releases.find(item =>
+        item._id === releaseID || item.releaseID === releaseID || item.tag === releaseID);
+    if (!record) throw new Error(`Release ${releaseID} was not present in the returned release list. Use liara_list_releases to inspect pagination/status.`);
+    return record;
 }
 
 /**
- * Rollback to a previous release
+ * No rollback API contract has been verified in the official PaaS docs.
+ * Fail safely instead of sending an undocumented mutation to production.
  */
 export async function rollbackRelease(
-    client: LiaraClient,
-    appName: string,
-    releaseID: string
+    _client: LiaraClient,
+    _appName: string,
+    _releaseID: string
 ): Promise<{ message: string }> {
-    validateAppName(appName);
-    validateRequired(releaseID, 'Release ID');
-    return await client.post<{ message: string }>(
-        `/v2/projects/${appName}/releases/${releaseID}/rollback`
-    );
+    throw new Error('Automatic release rollback is disabled: no official HTTP rollback endpoint has been verified. Use the Liara console or a supported CLI procedure after user approval.');
 }
 
 /**

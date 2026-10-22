@@ -139,49 +139,17 @@ export async function resizeApp(
 }
 
 /**
- * Execute a command in the app container
- * Note: This may require WebSocket support depending on Liara API implementation
- * For now, we'll attempt to use HTTP endpoint if available
+ * Liara shell runs over WebSocket, not a documented HTTP /exec endpoint.
+ * Refuse unsupported calls instead of risking an arbitrary POST.
  */
 export async function execCommand(
-    client: LiaraClient,
+    _client: LiaraClient,
     appName: string,
-    command: string,
-    workingDir?: string
+    _command: string,
+    _workingDir?: string
 ): Promise<{ output: string; exitCode: number }> {
     validateAppName(appName);
-    validateRequired(command, 'Command');
-    
-    // Try HTTP endpoint first (if available)
-    // Note: Liara may require WebSocket for interactive commands
-    // This is a placeholder implementation
-    try {
-        const response = await client.post<{ output: string; exitCode: number }>(
-            `/v1/projects/${appName}/exec`,
-            {
-                command,
-                workingDir: workingDir || '/app',
-            }
-        );
-        return response;
-    } catch (error: unknown) {
-        const err = error as { response?: { status?: number }; message?: string };
-        // If HTTP endpoint doesn't exist, return error with guidance
-        if (err.response?.status === 404) {
-            const { LiaraMcpError } = await import('../utils/errors.js');
-            throw new LiaraMcpError(
-                'Command execution requires WebSocket support',
-                'EXEC_COMMAND_NOT_AVAILABLE',
-                { appName, command },
-                [
-                    'Use the Liara CLI: liara app shell --app <name> -- <command>',
-                    'Or implement WebSocket support in the MCP server',
-                    'Check if the app is running and accessible'
-                ]
-            );
-        }
-        throw error;
-    }
+    throw new Error('The Liara PaaS API does not document HTTP /exec. Use the Liara CLI shell on a trusted machine instead.');
 }
 
 /**

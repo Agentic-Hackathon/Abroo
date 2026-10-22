@@ -30,7 +30,7 @@ export async function handleEnvTools(
         }
 
         case 'liara_get_env_vars': {
-            const envVars = await envService.getEnvVars(client, args!.appName as string);
+            const envVars = await envService.getEnvVarSummary(client, args!.appName as string);
             return jsonResponse(envVars);
         }
 

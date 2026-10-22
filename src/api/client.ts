@@ -22,7 +22,7 @@ export class LiaraClient {
     private retryDelay: number;
 
     constructor(config: LiaraClientConfig) {
-        const baseURL = config.baseURL || process.env.LIARA_API_BASE_URL || 'https://api.iran.liara.ir';
+        const baseURL = config.baseURL || process.env.LIARA_API_BASE_URL || 'https://api.liara.ir';
 
         this.client = axios.create({
             baseURL,
@@ -39,7 +39,7 @@ export class LiaraClient {
 
         // Add response interceptor for error handling
         this.client.interceptors.response.use(
-            (response) => response,
+            (response: any) => response,
             (error: AxiosError<LiaraApiError>) => {
                 return Promise.reject(this.handleError(error));
             }
@@ -58,7 +58,8 @@ export class LiaraClient {
      */
     private async executeWithRetry<T>(
         requestFn: () => Promise<T>,
-        retryCount = 0
+        retryCount = 0,
+        safeToReplay = true
     ): Promise<T> {
         try {
             return await requestFn();
@@ -68,11 +69,11 @@ export class LiaraClient {
             const statusCode = err.statusCode || err.response?.status;
             const isRetryable = statusCode === 429 || (statusCode !== undefined && statusCode >= 500 && statusCode < 600);
             
-            if (isRetryable && retryCount < this.maxRetries) {
+            if (safeToReplay && isRetryable && retryCount < this.maxRetries) {
                 // Exponential backoff: 1s, 2s, 4s...
                 const delay = this.retryDelay * Math.pow(2, retryCount);
                 await this.sleep(delay);
-                return this.executeWithRetry(requestFn, retryCount + 1);
+                return this.executeWithRetry(requestFn, retryCount + 1, safeToReplay);
             }
             
             throw error;
@@ -154,7 +155,7 @@ export class LiaraClient {
                 params: this.addTeamId(params) as Record<string, string | number | boolean>
             });
             return response.data;
-        });
+        }, 0, false);
     }
 
     /**
@@ -166,7 +167,7 @@ export class LiaraClient {
                 params: this.addTeamId(params) as Record<string, string | number | boolean>
             });
             return response.data;
-        });
+        }, 0, false);
     }
 
     /**
@@ -178,7 +179,7 @@ export class LiaraClient {
                 params: this.addTeamId(params) as Record<string, string | number | boolean>
             });
             return response.data;
-        });
+        }, 0, false);
     }
 
     /**
@@ -201,7 +202,7 @@ export class LiaraClient {
                 maxBodyLength: Infinity,
             });
             return response.data;
-        });
+        }, 0, false);
     }
 }
 

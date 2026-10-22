@@ -43,6 +43,8 @@ import { getNetworkTools } from './network-tools.js';
 import { getUserTools } from './user-tools.js';
 import { getObservabilityTools } from './observability-tools.js';
 import { getDiagnoseTools } from './diagnose-tools.js';
+import { getRemediationTools } from './remediation-tools.js';
+import { getGuidedDeployTools } from './guided-deploy-tools.js';
 
 // Configuration for tool mode
 const USE_CONSOLIDATED_TOOLS = process.env.LIARA_MCP_CONSOLIDATED === 'true';
@@ -57,6 +59,8 @@ export function getAllTools(): ToolDefinition[] {
         return [
             ...getConsolidatedTools(),
             ...getDiagnoseTools(),
+            ...getRemediationTools(),
+            ...getGuidedDeployTools(),
         ];
     } else {
         // Individual mode: granular tools (legacy)
@@ -77,6 +81,8 @@ export function getAllTools(): ToolDefinition[] {
             ...getUserTools(),
             ...getObservabilityTools(),
             ...getDiagnoseTools(),
+            ...getRemediationTools(),
+            ...getGuidedDeployTools(),
         ];
     }
 }

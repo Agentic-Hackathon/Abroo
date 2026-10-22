@@ -41,7 +41,7 @@ const RULES: Rule[] = [
   {
     id: 'db-auth',
     pattern:
-      /(ER_ACCESS_DENIED|password authentication failed|authentication failed|Access denied for user|SASL)/i,
+      /(ER_ACCESS_DENIED|password authentication failed|Access denied for user|SASL)/i,
     severity: 'critical',
     title: 'Database authentication failure',
     suggestion:
@@ -70,10 +70,10 @@ const RULES: Rule[] = [
     pattern:
       /(ENOSPC|no space left on device|disk quota exceeded)/i,
     severity: 'critical',
-    title: 'Disk space exhausted',
+    title: 'Write failed: no space left or quota exceeded',
     suggestion:
-      'Inspect disk usage and identify unnecessary files before freeing space or increasing disk capacity.',
-    suggestedTool: 'liara_resize_disk',
+      'Determine which filesystem and path failed (including ephemeral root and inode quota); check attached volumes and disk metrics before taking any action.',
+    suggestedTool: 'liara_list_disks',
   },
   {
     id: 'timeout',

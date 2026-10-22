@@ -99,7 +99,7 @@ export function buildReport(
   findings: Finding[],
   runs: AnalyzerRun[],
   unknown: string[],
-  redact: boolean,
+  _redact: boolean,
 ): DiagnoseReport {
   const count = (severity: Finding['severity']) =>
     findings.filter((finding) => finding.severity === severity).length;
@@ -178,6 +178,12 @@ export function buildReport(
   }
 
   notes.push(
+    'Log counts refer to sampled lines, not necessarily all events in the full look-back period.',
+  );
+  notes.push(
+    'Metrics without known units or capacity are not treated as CPU/RAM utilization percentages.',
+  );
+  notes.push(
     'Findings are evidence for you to explain; verify before applying any suggested change.',
   );
 
@@ -204,7 +210,9 @@ export function buildReport(
     notes,
   };
 
-  return redact ? redactDeep(report) : report;
+  // Secrets must not leak even if a client requests redact=false.
+  // Output is always redacted as part of the tool's security contract.
+  return redactDeep(report);
 }
 
 export async function diagnoseApp(
@@ -229,6 +237,6 @@ export async function diagnoseApp(
     findings,
     runs,
     unknown,
-    opts.redact !== false,
+    true,
   );
 }

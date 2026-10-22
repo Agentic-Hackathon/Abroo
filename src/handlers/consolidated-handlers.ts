@@ -125,7 +125,7 @@ async function handleEnvVarManagement(client: LiaraClient, args: any): Promise<T
 
     switch (action) {
         case 'list':
-            const envVars = await envService.getEnvVars(client, appName);
+            const envVars = await envService.getEnvVarSummary(client, appName);
             return {
                 content: [{ type: 'text', text: JSON.stringify(envVars, null, 2) }],
             };

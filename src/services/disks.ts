@@ -18,8 +18,8 @@ export async function listDisks(
 ): Promise<Disk[]> {
     validateAppName(appName);
     // Disks are included in project details, but we can still apply pagination client-side if needed
-    const project = await client.get<any>(`/v1/projects/${appName}`);
-    const disks = project.disks || [];
+    const response = await client.get<any>(`/v1/projects/${appName}/disks`);
+    const disks = response.disks || [];
     
     // Apply client-side pagination if needed (since disks come from project details)
     if (pagination) {
@@ -153,7 +153,7 @@ export async function resizeDisk(
     
     return await client.post<Disk>(
         `/v1/projects/${appName}/disks/${diskName}/resize`,
-        { size }
+        { size: String(size) }
     );
 }
 

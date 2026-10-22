@@ -1,81 +1,72 @@
 import type { Analyzer, Finding } from '../types.js';
-import { findMetric, truncate } from '../util.js';
 
 const WARN_PCT = 85;
 const CRIT_PCT = 95;
 
-const CPU_KEY = /cpu/i;
-const MEM_KEY = /(mem|ram)/i;
-const PCT_KEY = /(percent|pct|util)/i;
-
-function check(
-  label: string,
-  metrics: unknown,
-  keyRe: RegExp,
-): Finding | undefined {
-  const hit = findMetric(
-    metrics,
-    new RegExp(
-      `(?=.*${keyRe.source})(?=.*${PCT_KEY.source})`,
-      'i',
-    ),
-  );
-
-  if (!hit || hit.value < WARN_PCT) return undefined;
-
-  const severity = hit.value >= CRIT_PCT ? 'critical' : 'warning';
-  const id = label === 'CPU' ? 'cpu-usage-high' : 'memory-usage-high';
-
-  return {
-    analyzer: 'resources',
-    id,
-    severity,
-    basis: 'observed',
-    title: `${label} usage is high (${hit.value}%)`,
-    evidence: [`${hit.key}=${hit.value}`],
-    suggestion: `Investigate what is consuming ${label}. If sustained high usage is confirmed, consider moving to a larger plan.`,
-    suggestedTool: 'liara_resize_app',
-  };
+/** Liara's summary CPU is a measurement series, memory is in bytes;
+ * neither is a utilization percentage without an explicit capacity. */
+function explicitPercent(metrics: Record<string, unknown>, key: string): number | undefined {
+  const value = metrics[key];
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) return undefined;
+  return value;
 }
 
 export const resourcesAnalyzer: Analyzer = {
   name: 'resources',
-  description: 'CPU / memory pressure from the metrics summary',
+  description: 'Conservative resource checks; only compare values whose units are confirmed',
   defaultEnabled: true,
   requires: ['metrics'],
-
   analyze(ctx): Finding[] {
-    const metrics = ctx.metrics;
-
-    if (metrics === undefined || metrics === null) {
-      return [];
-    }
-
+    if (!ctx.metrics || typeof ctx.metrics !== 'object') return [];
+    const metrics = ctx.metrics as Record<string, any>;
     const findings: Finding[] = [];
 
-    const cpuFinding = check('CPU', metrics, CPU_KEY);
-    const memoryFinding = check('Memory', metrics, MEM_KEY);
-
-    if (cpuFinding) findings.push(cpuFinding);
-    if (memoryFinding) findings.push(memoryFinding);
-
-    if (findings.length === 0) {
+    for (const [key, name, id] of [
+      ['cpuUsagePercent', 'CPU', 'cpu-usage-high'],
+      ['memoryUsagePercent', 'Memory', 'memory-usage-high'],
+    ] as const) {
+      const pct = explicitPercent(metrics, key);
+      if (pct === undefined || pct < WARN_PCT) continue;
       findings.push({
-        analyzer: 'resources',
-        id: 'metrics-snapshot',
-        severity: 'info',
-        basis: 'observed',
-        title:
-          'Metrics snapshot (no percentage threshold exceeded or percentages unavailable)',
-        evidence: [
-          truncate(
-            JSON.stringify(metrics) ?? String(metrics),
-            600,
-          ),
-        ],
+        analyzer: 'resources', id, severity: pct >= CRIT_PCT ? 'critical' : 'warning',
+        basis: 'observed', title: `${name} utilization ${pct}%`,
+        evidence: [`${key}=${pct}%`],
+        suggestion: `Check sustained ${name} pressure before changing a resource plan.`,
+        suggestedTool: 'liara_get_app_metrics',
       });
     }
 
+    // PaaS summary disksUsage entries have size and usage using the same units.
+    if (Array.isArray(metrics.disksUsage)) {
+      for (const disk of metrics.disksUsage) {
+        const size = Number(disk?.size);
+        const used = Number(disk?.usage);
+        if (!Number.isFinite(size) || !Number.isFinite(used) || size <= 0 || used < 0) continue;
+        const pct = Math.round((used / size) * 1000) / 10;
+        if (pct < WARN_PCT) continue;
+        const name = typeof disk?.name === 'string' ? disk.name : 'unknown';
+        findings.push({
+          analyzer: 'resources', id: `disk-utilization-high:${name}`,
+          severity: pct >= CRIT_PCT ? 'critical' : 'warning', basis: 'observed',
+          title: `Persistent disk ${name} utilization ${pct}%`,
+          evidence: [`disk=${name}`, `used=${used}`, `capacity=${size}`, `utilization=${pct}%`],
+          suggestion: 'Confirm the disk is attached at the failing path, then decide whether cleanup or expansion is appropriate.',
+          suggestedTool: 'liara_list_disks',
+        });
+      }
+    }
+    if (!findings.length) {
+      findings.push({
+        analyzer: 'resources', id: 'metrics-uninterpreted', severity: 'info', basis: 'observed',
+        title: 'Resource metrics received; no validated threshold violation',
+        evidence: [
+          `cpuSeriesCount=${Array.isArray(metrics.cpuUsage) ? metrics.cpuUsage.length : 0}`,
+          `memorySeriesCount=${Array.isArray(metrics.memoryUsage) ? metrics.memoryUsage.length : 0}`,
+          `diskUsageCount=${Array.isArray(metrics.disksUsage) ? metrics.disksUsage.length : 0}`,
+        ],
+        suggestion: 'CPU time series and memory bytes alone do not establish percentage utilization or available disk space.',
+      });
+    }
     return findings;
   },
 };

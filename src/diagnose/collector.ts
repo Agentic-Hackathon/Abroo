@@ -4,7 +4,7 @@ import type { DatasetName, DiagnoseContext, EnvVar, LogLine } from './types.js';
 import { parseSince } from './util.js';
 
 const LOG_LIMIT = 500;
-const RELEASES_COUNT = 50;   // اگر API مقدار بزرگ را رد کرد، به 10 برگردان
+const RELEASES_COUNT = 50;
 
 function reason(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -46,6 +46,8 @@ export async function collectContext(
   const project: Record<string, any> | undefined = appRaw?.project ?? appRaw;
   if (appRaw && !project) unavailable.app = 'unexpected response shape';
   const { envs: rawEnvs, ...appSafe } = (project ?? {}) as Record<string, any>;
+  if (!appRaw) unavailable.envs = 'Project configuration unavailable';
+  else if (!Array.isArray(rawEnvs)) unavailable.envs = 'Project response did not include environment-variable data';
 
   const envs: EnvVar[] = Array.isArray(rawEnvs)
     ? rawEnvs
@@ -53,20 +55,13 @@ export async function collectContext(
         .map((e: any) => ({ key: e.key, value: e.value === undefined ? undefined : String(e.value) }))
     : [];
 
-  // ── plan (بعد از app)
-  let plan: Record<string, any> | undefined;
-  const planId = project?.planID ?? project?.planId ?? project?.plan?._id ?? (typeof project?.plan === 'string' ? project.plan : undefined);
-  if (planId) {
-    try {
-      plan = await client.get<Record<string, any>>(`/v1/plans/${planId}`);
-    } catch (e) {
-      unavailable.plan = reason(e);
-    }
-  }
+  // /v1/plans/{id} is not part of the documented PaaS contract.
+  // Do not mark an otherwise-valid diagnosis degraded because a speculative endpoint 404s.
+  const plan = undefined;
 
   // ── releases: آبجکت → آرایه + currentRelease + نگاشت id→tag
   const relRaw = ok('releases', releasesR);
-  const releases: Array<Record<string, any>> = Array.isArray(relRaw) ? relRaw : (relRaw?.releases ?? []);
+  const releases: Array<Record<string, any>> = Array.isArray(relRaw) ? relRaw : (Array.isArray(relRaw?.releases) ? relRaw.releases : []);
   const currentReleaseId: string | undefined = Array.isArray(relRaw) ? undefined : relRaw?.currentRelease;
   const releaseTags: Record<string, string> = Object.fromEntries(
     releases.filter((r) => r?._id && r?.tag).map((r) => [r._id, String(r.tag)]),   // VERIFY: نام فیلد tag را در پاسخ واقعی چک کن
@@ -102,6 +97,8 @@ export async function collectContext(
       from: logs[0]?.timestamp,
       to: logs.at(-1)?.timestamp,
       limit: LOG_LIMIT,
+      // v2 logs API has a finite head pagination cap. Fewer than LIMIT does NOT
+      // prove that every message in a busy look-back window was retrieved.
       truncated: logs.length >= LOG_LIMIT,
     },
     releases,

@@ -25,7 +25,8 @@ export async function handleDeploymentTools(
                 args!.appName as string,
                 {
                     sourceID: args!.sourceID as string,
-                    envVars: args!.envVars as any,
+                    port: args!.port as number,
+                    type: args!.type as string,
                 }
             );
             return successResponse(`Deployment initiated. Release ID: ${result.releaseID}`);

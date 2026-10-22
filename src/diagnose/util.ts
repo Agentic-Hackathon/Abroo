@@ -6,7 +6,7 @@ const DEFAULT_WINDOW_MS = UNIT_MS.h;
 export function parseSince(since?: string): number {
   if (!since) return DEFAULT_WINDOW_MS;
   const m = /^(\d+)\s*([smhd])$/i.exec(since.trim());
-  if (!m) return DEFAULT_WINDOW_MS;
+  if (!m || Number(m[1]) <= 0) throw new Error('Invalid since window. Use e.g. 30m, 1h, 1d (up to 7d).');
   return Math.min(Number(m[1]) * UNIT_MS[m[2].toLowerCase()], MAX_WINDOW_MS);
 }
 

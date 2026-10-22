@@ -27,7 +27,7 @@ export function getDiagnoseTools(): ToolDefinition[] {
           },
           redact: {
             type: 'boolean',
-            description: 'Mask secrets in the output (optional, default true)',
+            description: 'Deprecated: output always masks secrets (cannot disable)',
           },
         },
         required: ['appName'],

@@ -10,6 +10,7 @@ type ReleaseRecord = {
   _id?: string;
   id?: string;
   createdAt?: string | number | Date;
+  state?: string;
   status?: string;
 };
 
@@ -47,16 +48,17 @@ export const deploymentAnalyzer: Analyzer = {
 
     const previousGood = sorted
       .slice(1)
-      .find((release) => GOOD.test(String(release.status ?? '')));
+      .find((release) => GOOD.test(String(release.state ?? release.status ?? '')));
 
     const findings: Finding[] = [];
-    const status = String(latest.status ?? '');
+    const status = String(latest.state ?? latest.status ?? '');
+    const normalStatus = status.replace(/[_-]/g, ' ');
     const latestId = releaseId(latest);
     const createdAt = latest.createdAt
       ? String(latest.createdAt)
       : 'n/a';
 
-    if (status && FAILED.test(status)) {
+    if (status && FAILED.test(normalStatus)) {
       findings.push({
         analyzer: 'deployment',
         id: 'latest-release-failed',
@@ -71,11 +73,9 @@ export const deploymentAnalyzer: Analyzer = {
             : []),
         ],
         suggestion: previousGood
-          ? 'Consider rolling back to the last known-good release while investigating the failure.'
+          ? 'Inspect failed build logs and compare with the last known-good release. Rollback requires a verified supported procedure and separate approval.'
           : 'Inspect the build and deployment logs, fix the cause, and redeploy.',
-        ...(previousGood
-          ? { suggestedTool: 'liara_rollback_release' }
-          : {}),
+        suggestedTool: 'liara_list_releases',
       });
 
       return findings;
@@ -116,9 +116,7 @@ export const deploymentAnalyzer: Analyzer = {
         },
         suggestion:
           'The errors may be related to this release, but timing alone does not prove causation. Compare logs and behavior before and after deployment.',
-        suggestedTool: previousGood
-          ? 'liara_rollback_release'
-          : 'liara_list_releases',
+        suggestedTool: 'liara_list_releases',
       });
     }
 

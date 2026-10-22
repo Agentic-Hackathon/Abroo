@@ -61,7 +61,7 @@ export function getEnvTools(): ToolDefinition[] {
         },
         {
             name: 'liara_get_env_vars',
-            description: 'Get all environment variables for an app',
+            description: 'READ ONLY. Get environment variable keys and configured states; sensitive values always redacted',
             inputSchema: {
                 type: 'object',
                 properties: {

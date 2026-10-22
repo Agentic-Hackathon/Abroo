@@ -86,6 +86,7 @@ export interface CreateProjectRequest {
     platform: Platform;
     planID: string;
     bundlePlanID?: string;
+    readOnlyRootFilesystem?: boolean;
     region?: string;
     network?: string;
 }
@@ -123,7 +124,8 @@ export interface DeploySourceResponse {
 
 export interface DeployReleaseRequest {
     sourceID: string;
-    envVars?: EnvironmentVariable[];
+    port: number;
+    type: string;
 }
 
 export interface DeployReleaseResponse {
@@ -343,8 +345,14 @@ export interface AppMetrics {
 }
 
 export interface MetricsSummary {
-    period: string;
-    metrics: AppMetrics;
+    // PaaS GET /v1/projects/{name}/metrics/summary returns raw time series.
+    cpuUsage?: Array<{ value: [number, string | number]; applet?: string }>;
+    memoryUsage?: Array<{ value: [number, string | number]; applet?: string }>;
+    disksUsage?: Array<{ name?: string; size?: number | string; usage?: number | string }>;
+    // Legacy aliases retained for earlier consumers/tests; do NOT treat the raw
+    // cpuUsage/memoryUsage as percentages without an explicit unit definition.
+    period?: string;
+    metrics?: AppMetrics;
 }
 
 // Log types

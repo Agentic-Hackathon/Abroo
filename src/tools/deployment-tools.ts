@@ -7,7 +7,7 @@ export function getDeploymentTools(): ToolDefinition[] {
     return [
         {
             name: 'liara_upload_source',
-            description: 'Upload source code (.tar.gz file) for deployment',
+            description: 'Upload source code (.tar.gz file) using the Liara v2 multipart file field',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -37,19 +37,10 @@ export function getDeploymentTools(): ToolDefinition[] {
                         type: 'string',
                         description: 'Source ID from previous source upload',
                     },
-                    envVars: {
-                        type: 'array',
-                        description: 'Optional environment variables for this deployment',
-                        items: {
-                            type: 'object',
-                            properties: {
-                                key: { type: 'string' },
-                                value: { type: 'string' },
-                            },
-                        },
-                    },
+                    port: { type: 'number', description: 'App listening port (1–65535)' },
+                    type: { type: 'string', description: 'Deployment type/platform, e.g. node (per Liara deployment API)' },
                 },
-                required: ['appName', 'sourceID'],
+                required: ['appName', 'sourceID', 'port', 'type'],
             },
         },
         {
@@ -133,7 +124,7 @@ export function getDeploymentTools(): ToolDefinition[] {
                         description: 'The source ID to delete',
                     },
                 },
-                required: ['appName', 'sourceID'],
+                required: ['appName', 'sourceID', 'port', 'type'],
             },
         },
     ];

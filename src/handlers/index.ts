@@ -22,6 +22,8 @@ import { handleNetworkTools } from './network-handlers.js';
 import { handleUserTools } from './user-handlers.js';
 import { handleObservabilityTools } from './observability-handlers.js';
 import { handleDiagnoseTools } from './diagnose-handlers.js';
+import { handleRemediationTools } from './remediation-handlers.js';
+import { handleGuidedDeployTools } from './guided-deploy-handlers.js';
 
 export { LiaraClient, ToolResult, extractPagination } from './types.js';
 
@@ -41,6 +43,12 @@ export async function handleToolCall(
         if (diagnoseResult !== null) {
             return diagnoseResult;
         }
+
+        const remediation = await handleRemediationTools(client, name, args);
+        if (remediation !== null) return remediation;
+
+        const guidedDeploy = await handleGuidedDeployTools(client, name, args);
+        if (guidedDeploy !== null) return guidedDeploy;
 
         // Check if using consolidated tools mode
         const useConsolidated = process.env.LIARA_MCP_CONSOLIDATED === 'true';
