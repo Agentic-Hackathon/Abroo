@@ -4,6 +4,10 @@
 
 Abroo lets AI assistants deploy, inspect, and manage your Liara infrastructure through natural language, and **diagnose broken apps** by turning logs, metrics, releases, and config into structured, evidence-backed findings.
 
+## Use with the Abroo Extension
+ 
+Abroo is meant to be used together with the **[Abroo Extension](https://github.com/Agentic-Hackathon/Abroo-Extension)**. Install the extension alongside this MCP server and follow its README for setup. The MCP server provides the Liara tools, and the extension is the intended way to use them.
+
 ## Features
 
 - **Diagnose** — one read-only tool that checks an app's status, resources, logs, deployments, and config, and returns findings with evidence and suggested next steps ([details](#diagnose))
