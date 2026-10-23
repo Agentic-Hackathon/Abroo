@@ -50,6 +50,20 @@ export async function handleToolCall(
         const guidedDeploy = await handleGuidedDeployTools(client, name, args);
         if (guidedDeploy !== null) return guidedDeploy;
 
+        // Read-only account/plan/network tools are available even in consolidated mode.
+        if (name === 'liara_get_balance' || name === 'liara_get_remaining_free_credit' || name === 'liara_get_user') {
+            const result=await handleUserTools(client,name,args);
+            if (result !== null) return result;
+        }
+        if (name === 'liara_list_plans' || name === 'liara_get_plan') {
+            const result=await handlePlanTools(client,name,args);
+            if (result !== null) return result;
+        }
+        if (name === 'liara_list_networks' || name === 'liara_get_network') {
+            const result=await handleNetworkTools(client,name,args);
+            if (result !== null) return result;
+        }
+
         // Check if using consolidated tools mode
         const useConsolidated = process.env.LIARA_MCP_CONSOLIDATED === 'true';
 
