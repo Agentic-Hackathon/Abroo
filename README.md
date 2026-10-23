@@ -1,121 +1,116 @@
-# Liara MCP Server
+# Abroo
 
-> **Note**: This is an **unofficial** MCP server for the Liara cloud platform. It is not affiliated with or endorsed by Liara.
+> **Note**: Abroo is an **unofficial**, community-maintained [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for the [Liara](https://liara.ir) cloud platform. It is not affiliated with or endorsed by Liara.
 
-A Model Context Protocol (MCP) server for the Liara cloud platform. This server enables AI assistants to deploy and manage applications, databases, and infrastructure on Liara through natural language.
-
-<div align="center">
-  <img src="assets/liara-mcp-logo.jpg" alt="Liara MCP Server" width="600">
-</div>
+Abroo lets AI assistants deploy, inspect, and manage your Liara infrastructure through natural language, and **diagnose broken apps** by turning logs, metrics, releases, and config into structured, evidence-backed findings.
 
 ## Features
 
-### Current Capabilities
+- **Diagnose** — one read-only tool that checks an app's status, resources, logs, deployments, and config, and returns findings with evidence and suggested next steps ([details](#diagnose))
+- **Apps** — create, deploy, start, stop, restart, resize, and delete apps across 14 platforms
+- **Environment variables** — set, read, and delete variables (single or bulk)
+- **Deployment** — upload sources, deploy releases, list releases, roll back
+- **Databases** — lifecycle management, connection info, resize, and backup/restore for 8 database types
+- **Object storage** — S3-compatible buckets, credentials, and objects
+- **DNS and domains** — zones, records, and app domains
+- **Disks** — create, resize, and manage FTP access
+- **Mail servers** — lifecycle management and sending email
+- **Virtual machines (IaaS)** — VM lifecycle, snapshots, and network attachment
+- **Networks** — create and manage networks for VMs
+- **Observability** — app metrics and logs
+- **Plans and user** — browse resource plans and account info
 
-- **App Management**: Create, deploy, start, stop, restart, and delete apps across 14+ platforms
-- **Environment Variables**: Set and update environment variables for apps
-- **Deployment**: Deploy releases, upload sources, rollback to previous versions
-- **Database Management**: Create, manage, and backup databases (MySQL, PostgreSQL, MongoDB, Redis, etc.)
-- **Object Storage**: Manage S3-compatible storage buckets and objects
-- **DNS Management**: Complete DNS zone and record management
-- **Domain Management**: Add, remove, and verify domains for apps
-- **Disk Management**: Create and manage disks with FTP access
-- **Mail Servers**: Create and manage mail servers, send emails
-- **Virtual Machines (IaaS)**: Full VM lifecycle management with snapshots
-- **Network Management**: Create and manage networks for VMs
-- **Observability**: Retrieve app metrics and logs
-- **Plans**: List and view available resource plans
+**Platforms:** Node.js, Next.js, Laravel, PHP, Django, Flask, .NET, Static, React, Angular, Vue, Docker, Python, Go
 
-### Supported Platforms
+**Databases:** MariaDB, MySQL, PostgreSQL, MSSQL, MongoDB, Redis, Elasticsearch, RabbitMQ
 
-Node.js, Next.js, Laravel, PHP, Django, Flask, .NET, Static sites, React, Angular, Vue, Docker, Python, Go
+## Diagnose
 
-### Supported Databases
+`liara_diagnose_app` collects everything it needs once (app info, plan, metrics, recent logs, releases, env var keys) and runs a set of rule-based analyzers over it. The assistant then explains the findings in plain language instead of guessing from raw logs.
 
-MariaDB, MySQL, PostgreSQL, MSSQL, MongoDB, Redis, ElasticSearch, RabbitMQ
+| Check | What it looks for |
+| --- | --- |
+| `status` | App stopped/failed, read-only mode |
+| `resources` | CPU and memory pressure (warning at 85%, critical at 95% of plan limits) |
+| `logs` | Known failure patterns: out-of-memory, missing modules, port conflicts, DB auth failures, connection refused, DNS failures, disk full, timeouts, crashes, probable restart loops |
+| `deployment` | Failed latest release, and error spikes in a window containing a recent release |
+| `config` | Important env vars that are empty, or values that still look like placeholders |
+
+**Parameters**
+
+| Name | Required | Description |
+| --- | --- | --- |
+| `appName` | yes | Name of the app |
+| `checks` | no | Subset of checks to run (default: all) |
+| `since` | no | Look-back window such as `30m`, `1h`, `6h`, `1d` (default `1h`, max `7d`) |
+| `redact` | no | Mask secrets in the output (default `true`) |
+
+**Design principles**
+
+- **Read-only.** Diagnose never changes anything. Suggested tools (e.g. `liara_rollback_release`) are suggestions only, and the assistant should get your confirmation before running them.
+- **Evidence, not verdicts.** Every finding carries redacted evidence, and is marked `observed` (seen directly in the data) or `hypothesis` (a guess about the cause that should be confirmed first).
+- **Secrets stay out.** Logs are masked by pattern (private keys, JWTs, bearer tokens, credentials in URLs, `password=`/`token=`-style values). Environment variable *values* are only inspected locally and never appear in findings.
+- **Honest about gaps.** The overall status is `critical`, `degraded`, `healthy`, or `unknown`. If a dataset could not be collected or an analyzer failed, the result is never reported as `healthy`, and the report says what was missing.
+- **Sampling is disclosed.** Logs are sampled (up to 500 lines), and the report flags when the window was probably truncated. A clean result does not prove the app is healthy, since checks only cover known patterns.
+- **Extensible.** Add a new analyzer by creating a file in `src/diagnose/analyzers/` and registering it in `src/diagnose/registry.ts`.
+
+Diagnose is available in both tool modes.
 
 ## Installation
 
 ```bash
-npm install -g liara-mcp
+npm install -g abroo
 ```
 
-Or use directly with npx (no installation required).
-
-## Tool Modes
-
-The Liara MCP server supports two modes for tool organization:
-
-### Consolidated Mode (Recommended)
-Set `LIARA_MCP_CONSOLIDATED=true` environment variable to enable consolidated tools. This mode provides fewer, more powerful tools that combine related functionality:
-
-- `liara_manage_app` - Complete app lifecycle management (list, get, create, delete, start, stop, restart, resize)
-- `liara_manage_env_vars` - Environment variable management (list, set single/multiple, delete single/multiple)
-- `liara_manage_databases` - Database lifecycle management (list, get, create, delete, start, stop, restart, resize, update)
-- `liara_manage_database_backups` - Database backup operations (create, list, get download URL, restore, delete)
-- `liara_manage_buckets` - Bucket lifecycle management (list, get, create, delete, get credentials)
-- `liara_manage_bucket_objects` - Bucket object operations (list, upload, get download URL, delete)
-- `liara_get_infrastructure_overview` - Get comprehensive overview of all resources
-- `liara_manage_deployment` - Deployment management (list releases, list sources)
-
-**Benefits of Consolidated Mode:**
-- **Reduced Complexity**: 8 powerful tools vs 100+ individual tools
-- **Better UX**: Single tool handles related operations with action parameter
-- **Improved Performance**: Fewer tool calls needed for complex operations
-- **Simplified Integration**: Easier to understand and use tool set
-
-### Individual Mode (Legacy)
-The default mode provides granular tools (100+ individual tools) for maximum control and specificity.
+Or run it directly with `npx` (no installation required).
 
 ## Configuration
 
-The server supports multiple ways to configure your API token:
+Abroo is configured through environment variables.
 
-### Option 1: Environment Variables (Recommended for MCP clients)
+| Variable | Required | Description |
+| --- | --- | --- |
+| `LIARA_API_TOKEN` | yes | Your Liara API token |
+| `LIARA_TEAM_ID` | no | Team ID, when working with a team account |
+| `LIARA_API_BASE_URL` | no | API base URL (default `https://api.iran.liara.ir`) |
+| `LIARA_MCP_CONSOLIDATED` | no | Set to `true` to enable [consolidated tool mode](#tool-modes) |
 
-Set the token directly in your MCP client configuration (see Usage section below).
+You can set them in your MCP client configuration (recommended), or in a `.env` file for local development:
 
-### Option 2: .env File (For local development)
-
-1. Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
 
-2. Configure your Liara API credentials in `.env`:
 ```
 LIARA_API_TOKEN=your_api_token_here
 LIARA_TEAM_ID=optional_team_id
 LIARA_API_BASE_URL=https://api.iran.liara.ir
 ```
 
-The server automatically loads `.env` files using dotenv, so no additional setup is required.
+### Getting your API token
 
-### Getting Your API Token
+1. Open the [API section](https://console.liara.ir/API) of the Liara Console.
+2. Choose an expiration (1 hour, 1 day, 7 days, 1 month, 6 months, or 1 year).
+3. Click "Create new key" (ساخت کلید جدید).
+4. Copy the token right away. It is only shown once.
 
-1. Go directly to the [API section](https://console.liara.ir/API) in Liara Console (or log in to [Liara Console](https://console.liara.ir) and navigate to the API section)
-2. Select an expiration timeline for your API key (options: 1 hour, 1 day, 7 days, 1 month, 6 months, or 1 year)
-3. Click "Create new key" (ساخت کلید جدید) to generate your API token
-4. Copy the generated token immediately - it will only be shown once
-
-### Team ID (Optional)
-
-If you're working with a team account, you can find your Team ID in the API section of the Liara console when viewing your team.
+If you work with a team account, the Team ID is shown in the API section when viewing your team.
 
 ## Usage
 
-### With Claude Desktop / Cursor / VS Code
+### Claude Desktop / Cursor / VS Code
 
-Add the following to your MCP configuration file:
+Add Abroo to your MCP configuration file:
+
 - **Claude Desktop:** `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows)
 - **Cursor:** `.cursor/mcp.json`
 
 ```json
 {
   "mcpServers": {
-    "liara": {
+    "abroo": {
       "command": "npx",
-      "args": ["-y", "liara-mcp"],
+      "args": ["-y", "abroo"],
       "env": {
         "LIARA_API_TOKEN": "your_api_token_here"
       }
@@ -124,365 +119,231 @@ Add the following to your MCP configuration file:
 }
 ```
 
-**Alternative Configuration (For nvm/fnm users):**
+### nvm / fnm users
 
-If you're using **nvm** or **fnm** to manage Node.js versions, use this configuration instead to avoid PATH issues:
-
-```json
-{
-  "mcpServers": {
-    "liara": {
-      "command": "/bin/zsh",
-      "args": [
-        "-c",
-        "source ~/.nvm/nvm.sh && npx -y liara-mcp"
-      ],
-      "env": {
-        "LIARA_API_TOKEN": "your_api_token_here"
-      }
-    }
-  }
-}
-```
-
-**For bash users**, replace `/bin/zsh` with `/bin/bash` and `~/.nvm/nvm.sh` with your nvm init script path.
-
-**For fnm users**:
-```json
-{
-  "mcpServers": {
-    "liara": {
-      "command": "/bin/zsh",
-      "args": [
-        "-c",
-        "eval \"$(fnm env --use-on-cd --shell zsh)\" && npx -y liara-mcp"
-      ],
-      "env": {
-        "LIARA_API_TOKEN": "your_api_token_here"
-      }
-    }
-  }
-}
-```
-
-### Why Use the Alternative Configuration?
-
-Many IDE and editor applications (like Claude Desktop, Cursor, Windsurf, etc.) start MCP servers in a **restricted environment** without your shell's PATH configuration. This causes the error:
+Many editors start MCP servers without your shell's PATH, which causes errors like:
 
 ```
 Error: failed to create mcp stdio client: exec: "npx": executable file not found in $PATH
+spawn npx ENOENT
 ```
 
-**The problem:** When you use nvm/fnm, Node.js and npx are installed in version-specific directories that are added to PATH by your shell initialization scripts (`~/.zshrc`, `~/.bashrc`, etc.). However, MCP clients don't load these files, so they can't find npx.
+If you manage Node.js with nvm or fnm, wrap the command in a shell that loads your environment first.
 
-**The solution:** Using a shell wrapper (`/bin/zsh -c` or `/bin/bash -c`) explicitly sources the nvm/fnm initialization script before running npx. This ensures the Node.js environment is properly configured.
+**nvm:**
 
-**When to use each:**
-- **Basic config**: If you installed Node.js via system package manager (`brew`, `apt`, etc.) or official installer
-- **Alternative config**: If you use nvm, nodenv, fnm, or similar version managers
-
-
-
-### Troubleshooting: PATH Issues (nvm/nodenv users)
-
-If you see `spawn npx ENOENT` error, run the setup wizard:
-
-```bash
-npx liara-mcp-setup
+```json
+{
+  "mcpServers": {
+    "abroo": {
+      "command": "/bin/zsh",
+      "args": ["-c", "source ~/.nvm/nvm.sh && npx -y abroo"],
+      "env": {
+        "LIARA_API_TOKEN": "your_api_token_here"
+      }
+    }
+  }
+}
 ```
 
-This will generate the correct configuration with absolute paths for your system.
+**fnm:**
 
-### Available Tools
+```json
+{
+  "mcpServers": {
+    "abroo": {
+      "command": "/bin/zsh",
+      "args": ["-c", "eval \"$(fnm env --use-on-cd --shell zsh)\" && npx -y abroo"],
+      "env": {
+        "LIARA_API_TOKEN": "your_api_token_here"
+      }
+    }
+  }
+}
+```
 
-#### App Management
-- `liara_list_apps` - List all apps
-- `liara_get_app` - Get app details
-- `liara_create_app` - Create a new app
-- `liara_delete_app` - Delete an app
-- `liara_start_app` - Start an app
-- `liara_stop_app` - Stop an app
-- `liara_restart_app` - Restart an app
-- `liara_resize_app` - Change app plan
+For bash, replace `/bin/zsh` with `/bin/bash`. If you installed Node.js with a system package manager or the official installer, the basic configuration is enough.
 
-#### Environment Variables
-- `liara_set_env_vars` - Set environment variables (single or multiple)
-- `liara_get_env_vars` - Get all environment variables
-- `liara_delete_env_vars` - Delete environment variables (single or multiple)
+## Tool modes
 
-#### Deployment
-- `liara_upload_source` - Upload source code for deployment
-- `liara_deploy_release` - Deploy a release
-- `liara_list_releases` - List all releases
-- `liara_get_release` - Get release details
-- `liara_rollback_release` - Rollback to a previous release
-- `liara_list_sources` - List uploaded sources
-- `liara_delete_source` - Delete an uploaded source
+Abroo exposes its tools in one of two modes.
 
+### Individual mode (default)
 
-#### Database Management
-- `liara_list_databases` - List all databases
-- `liara_get_database` - Get database details
-- `liara_create_database` - Create a new database
-- `liara_delete_database` - Delete a database
-- `liara_start_database` - Start a database
-- `liara_stop_database` - Stop a database
-- `liara_restart_database` - Restart a database
-- `liara_get_database_connection` - Get database connection info (host, port, credentials). Tries multiple API endpoints to retrieve complete connection info including passwords. Returns warnings if password is not available.
-- `liara_reset_database_password` - Reset or update database password. If newPassword is not provided, generates a new random password.
-- `liara_update_database` - Update database settings (plan/resize or version)
-- `liara_create_backup` - Create a database backup
-- `liara_list_backups` - List database backups
-- `liara_get_backup_download_url` - Get backup download URL
-- `liara_restore_backup` - Restore database from backup
-- `liara_delete_backup` - Delete a database backup
+109 granular tools, one per operation, for maximum control. See [Available tools](#available-tools).
 
-#### Object Storage
-- `liara_list_buckets` - List all buckets
-- `liara_get_bucket` - Get bucket details
-- `liara_create_bucket` - Create a new bucket
-- `liara_delete_bucket` - Delete a bucket
-- `liara_get_bucket_credentials` - Get S3 credentials for a bucket
-- `liara_list_objects` - List objects in a bucket
-- `liara_upload_object` - Upload an object to a bucket
-- `liara_get_object_download_url` - Get download URL for an object
-- `liara_delete_object` - Delete an object from a bucket
+### Consolidated mode
 
+Set `LIARA_MCP_CONSOLIDATED=true` to get 9 tools instead. Each one takes an `action` parameter, which means fewer tools for the model to choose from and fewer calls for multi-step work.
 
-#### App Settings
-- `liara_set_zero_downtime` - Enable/disable zero-downtime deployment
-- `liara_set_default_subdomain` - Enable/disable default subdomain
-- `liara_set_fixed_ip` - Enable/disable static IP
-- `liara_set_read_only` - Enable/disable read-only mode
+| Tool | Actions |
+| --- | --- |
+| `liara_manage_app` | `list`, `get`, `create`, `delete`, `start`, `stop`, `restart`, `resize` |
+| `liara_manage_env_vars` | `list`, `set`, `set_multiple`, `delete`, `delete_multiple` |
+| `liara_manage_databases` | `list`, `get`, `get_connection`, `create`, `delete`, `start`, `stop`, `restart`, `resize`, `update` |
+| `liara_manage_database_backups` | `create`, `list`, `get_download_url`, `restore`, `delete` |
+| `liara_manage_buckets` | `list`, `get`, `create`, `delete`, `get_credentials` |
+| `liara_manage_bucket_objects` | `list`, `upload`, `get_download_url`, `delete` |
+| `liara_manage_deployment` | `list_releases`, `list_sources` |
+| `liara_get_infrastructure_overview` | Overview of all resources |
+| `liara_diagnose_app` | See [Diagnose](#diagnose) |
 
-#### Disk Management
-- `liara_list_disks` - List disks for an app
-- `liara_get_disk` - Get disk details
-- `liara_create_disk` - Create a new disk
-- `liara_delete_disk` - Delete a disk
-- `liara_resize_disk` - Resize a disk
-- `liara_create_ftp_access` - Create FTP access for a disk
-- `liara_list_ftp_accesses` - List FTP accesses for a disk
-- `liara_delete_ftp_access` - Delete FTP access
+Consolidated mode covers apps, env vars, databases, backups, buckets, deployment listing, and diagnosis. For everything else (DNS, domains, disks, mail, VMs, networks, and so on), use individual mode.
 
-#### DNS Management
-- `liara_list_zones` - List all DNS zones
-- `liara_get_zone` - Get zone details
-- `liara_create_zone` - Create a DNS zone
-- `liara_delete_zone` - Delete a DNS zone
+## Available tools
 
-- `liara_list_dns_records` - List DNS records
-- `liara_create_dns_record` - Create a DNS record
-- `liara_get_dns_record` - Get DNS record details
-- `liara_update_dns_record` - Update a DNS record
-- `liara_delete_dns_record` - Delete a DNS record
+These are the tools in individual mode.
 
-#### Domain Management
-- `liara_list_domains` - List all domains
-- `liara_get_domain` - Get domain details
-- `liara_add_domain` - Add a domain to an app
-- `liara_remove_domain` - Remove a domain from an app
+**Diagnose**
+`liara_diagnose_app`
 
+**Apps**
+`liara_list_apps`, `liara_get_app`, `liara_create_app`, `liara_delete_app`, `liara_start_app`, `liara_stop_app`, `liara_restart_app`, `liara_resize_app`
 
-#### Mail Server
-- `liara_list_mail_servers` - List all mail servers
-- `liara_get_mail_server` - Get mail server details
-- `liara_create_mail_server` - Create a mail server
-- `liara_delete_mail_server` - Delete a mail server
-- `liara_start_mail_server` - Start a mail server
-- `liara_stop_mail_server` - Stop a mail server
-- `liara_restart_mail_server` - Restart a mail server
-- `liara_send_email` - Send an email
+**Environment variables**
+`liara_get_env_vars`, `liara_set_env_var`, `liara_set_env_vars`, `liara_delete_env_var`, `liara_delete_env_vars`
 
-#### Virtual Machines (IaaS)
-- `liara_list_vms` - List all VMs
-- `liara_get_vm` - Get VM details
-- `liara_create_vm` - Create a new VM
-- `liara_start_vm` - Start a VM
-- `liara_stop_vm` - Stop a VM
-- `liara_restart_vm` - Restart a VM
-- `liara_delete_vm` - Delete a VM
-- `liara_resize_vm` - Resize a VM
-- `liara_create_snapshot` - Create a VM snapshot
-- `liara_list_snapshots` - List VM snapshots
-- `liara_restore_snapshot` - Restore VM from snapshot
-- `liara_delete_snapshot` - Delete a VM snapshot
-- `liara_attach_network` - Attach network to VM
-- `liara_detach_network` - Detach network from VM
+**App settings**
+`liara_set_zero_downtime`, `liara_set_default_subdomain`, `liara_set_fixed_ip`, `liara_set_read_only`
 
-#### Network Management
-- `liara_list_networks` - List all networks
-- `liara_get_network` - Get network details
-- `liara_create_network` - Create a network
-- `liara_delete_network` - Delete a network
+**Deployment**
+`liara_upload_source`, `liara_deploy_release`, `liara_list_releases`, `liara_get_release`, `liara_rollback_release`, `liara_list_sources`, `liara_delete_source`
 
-#### Observability
-- `liara_get_metrics` - Get app metrics
-- `liara_get_logs` - Get app logs
+**Databases**
+`liara_list_databases`, `liara_get_database`, `liara_get_database_connection`, `liara_create_database`, `liara_update_database`, `liara_resize_database`, `liara_delete_database`, `liara_start_database`, `liara_stop_database`, `liara_restart_database`, `liara_create_backup`, `liara_list_backups`, `liara_get_backup_download_url`, `liara_restore_backup`, `liara_delete_backup`
 
-#### Plans
-- `liara_list_plans` - List available plans
-- `liara_get_plan` - Get plan details
+**Object storage**
+`liara_list_buckets`, `liara_get_bucket`, `liara_create_bucket`, `liara_delete_bucket`, `liara_get_bucket_credentials`, `liara_list_objects`, `liara_upload_object`, `liara_get_object_download_url`, `liara_delete_object`
 
-#### User
-- `liara_get_user` - Get user information
+**Disks**
+`liara_list_disks`, `liara_get_disk`, `liara_create_disk`, `liara_resize_disk`, `liara_delete_disk`, `liara_create_ftp_access`, `liara_list_ftp_accesses`, `liara_delete_ftp_access`
+
+**DNS**
+`liara_list_zones`, `liara_get_zone`, `liara_create_zone`, `liara_delete_zone`, `liara_list_dns_records`, `liara_get_dns_record`, `liara_create_dns_record`, `liara_update_dns_record`, `liara_delete_dns_record`
+
+**Domains**
+`liara_list_domains`, `liara_get_domain`, `liara_add_domain`, `liara_remove_domain`
+
+**Mail servers**
+`liara_list_mail_servers`, `liara_get_mail_server`, `liara_create_mail_server`, `liara_delete_mail_server`, `liara_start_mail_server`, `liara_stop_mail_server`, `liara_restart_mail_server`, `liara_send_email`
+
+**Virtual machines (IaaS)**
+`liara_list_vms`, `liara_get_vm`, `liara_create_vm`, `liara_start_vm`, `liara_stop_vm`, `liara_restart_vm`, `liara_resize_vm`, `liara_delete_vm`, `liara_create_snapshot`, `liara_list_snapshots`, `liara_restore_snapshot`, `liara_delete_snapshot`, `liara_attach_network`, `liara_detach_network`
+
+**Networks**
+`liara_list_networks`, `liara_get_network`, `liara_create_network`, `liara_delete_network`
+
+**Observability**
+`liara_get_metrics`, `liara_get_logs`
+
+**Plans and user**
+`liara_list_plans`, `liara_get_plan`, `liara_get_user`
 
 ## Examples
 
-### Example Conversations
+**Find out why an app is broken**
 
-**Create and deploy an app:**
 ```
-User: Create a Node.js app called "my-api" with the basic plan
-Assistant: [Uses liara_create_app tool]
-
-User: Set the NODE_ENV to production for my-api
-Assistant: [Uses liara_set_env_var tool]
-
-User: Start the app
-Assistant: [Uses liara_start_app tool]
+User: My app "my-api" keeps crashing. What's going on?
+Assistant: [liara_diagnose_app]
+  → critical: Out-of-memory errors (14×), first seen on release v7
+  → warning: Probable restart loop (hypothesis, confirm first)
+  Suggests resizing the plan, and asks before changing anything.
 ```
 
-**Create a database:**
-```
-User: Create a PostgreSQL database called "my-db" with the starter plan
-Assistant: [Uses liara_create_database tool]
+**Create and start an app**
 
-User: Create a backup of my-db
-Assistant: [Uses liara_create_backup tool]
 ```
+User: Create a Node.js app called "my-api" on the basic plan
+Assistant: [liara_create_app]
 
-**Get database credentials:**
-```
-User: Get connection info for my-db
-Assistant: [Uses liara_get_database_connection tool]
-  Returns: host, port, username, password, connection string
-  Includes warnings if password is not available from API
+User: Set NODE_ENV to production
+Assistant: [liara_set_env_var]
 
-User: Reset the password for my-db
-Assistant: [Uses liara_reset_database_password tool]
-  Generates new password and returns it in the response
+User: Start it
+Assistant: [liara_start_app]
 ```
 
-**Manage storage:**
-```
-User: Create a bucket called "my-files"
-Assistant: [Uses liara_create_bucket tool]
+**Databases and backups**
 
-User: Get the S3 credentials for my-files
-Assistant: [Uses liara_get_bucket_credentials tool]
 ```
+User: Create a PostgreSQL database called "my-db" on the starter plan
+Assistant: [liara_create_database]
+
+User: Back it up, then give me the connection info
+Assistant: [liara_create_backup, liara_get_database_connection]
+```
+
+**Storage**
+
+```
+User: Create a bucket called "my-files" and show me its S3 credentials
+Assistant: [liara_create_bucket, liara_get_bucket_credentials]
+```
+
+## Safety notes
+
+- Many tools are destructive (delete, resize, restore, rollback). Review what your assistant is about to run, and prefer clients that ask for confirmation on tool calls.
+- Use the shortest token expiration that works for you, and keep tokens out of version control.
+- Diagnose output is redacted by default. Only turn `redact` off when you need the raw text and trust where the output is going.
+
+## Error handling
+
+Errors come back as structured JSON with a code, a message, and, where possible, suggestions for fixing the problem. The client retries on rate limiting (429) and server errors (5xx) with exponential backoff. Typical cases include an invalid API token, missing or invalid parameters (such as app names and env var keys), resources that don't exist, and network failures.
 
 ## Development
 
 ```bash
-# Watch mode for development
-npm run dev
-
-# Type checking
-npm run type-check
-
-# Build
-npm run build
-
-# Clean build artifacts
-npm run clean
+npm run dev          # watch mode
+npm run type-check   # type checking
+npm run build        # build
+npm run clean        # remove build artifacts
 ```
 
-## Project Structure
+### Project structure
 
 ```
-liara-mcp/
-├── src/
-│   ├── index.ts              # MCP server entry point
-│   ├── api/
-│   │   ├── client.ts         # Liara API client
-│   │   └── types.ts          # TypeScript types
-│   ├── services/
-│   │   ├── apps.ts           # App management
-│   │   ├── databases.ts      # Database management
-│   │   ├── storage.ts        # Object storage
-│   │   ├── deployment.ts     # Deployment operations
-│   │   ├── environment.ts    # Environment variables
-│   │   └── plans.ts          # Plan information
-│   └── utils/
-│       └── errors.ts         # Error handling & validation
-├── package.json
-├── tsconfig.json
-└── README.md
+src/
+├── index.ts               # MCP server entry point
+├── api/
+│   ├── client.ts          # Liara API client (auth, retries, errors)
+│   └── types.ts           # API types
+├── tools/                 # Tool definitions (individual + consolidated)
+├── handlers/              # Tool call handlers
+├── services/              # One module per Liara service
+│   └── apps, databases, deployment, disks, dns, domains, environment,
+│       iaas, mail, network, observability, plans, settings, storage, user
+├── diagnose/              # Rule-based diagnosis engine
+│   ├── analyzers/         # status, resources, logs, deployment, config
+│   ├── collector.ts       # Gathers all data once for every analyzer
+│   ├── registry.ts        # Registers analyzers
+│   ├── runner.ts          # Runs analyzers, builds the report
+│   ├── redact.ts          # Secret masking
+│   └── types.ts
+└── utils/
+    └── errors.ts          # Error handling and validation
 ```
-
-## Error Handling
-
-The server provides user-friendly error messages for common scenarios:
-- Invalid API token
-- Missing required parameters
-- Resource not found
-- API rate limiting
-- Network connectivity issues
 
 ## Requirements
 
-- Node.js >= 18.0.0
-- Valid Liara API token
-
-## License
-
-MIT
-
-## API Coverage
-
-This MCP server implements comprehensive coverage of the [Liara API](https://openapi.liara.ir), including:
-
-### Implemented Services (15 modules, 100 tools)
-
-- **Apps** - Full lifecycle management (create, deploy, start, stop, restart, resize)
-- **Databases** - Complete database management with backup/restore (8 database types)
-- **Deployment** - Source upload, release management, rollback
-- **Environment Variables** - Set, get, delete environment variables
-- **Object Storage** - S3-compatible bucket and object management
-- **Disks** - Disk management with FTP access
-- **DNS** - Complete DNS zone and record management
-- **Domains** - Domain management and verification
-- **Mail Servers** - Mail server management and email sending
-- **Virtual Machines (IaaS)** - VM lifecycle, snapshots, network attachment
-- **Networks** - Network management for VMs
-- **Observability** - Metrics and logs retrieval
-- **Plans** - Resource plan information
-- **Settings** - App configuration (zero-downtime, subdomain, IP, read-only)
-- **User** - User account information
-
-### API Documentation Reference
-
-This implementation is based on the [Liara OpenAPI specification](https://openapi.liara.ir) and covers:
-- All major platform services (PaaS, DBaaS, IaaS, Object Storage, DNS, Mail)
-- CI/CD capabilities through deployment tools
-- Complete resource lifecycle management
-- Error handling aligned with Liara API responses
+- Node.js >= 18
+- A Liara API token
 
 ## Resources
 
-- [Liara Documentation](https://docs.liara.ir)
-- [Liara API Reference](https://openapi.liara.ir)
+- [Liara documentation](https://docs.liara.ir)
+- [Liara API reference](https://openapi.liara.ir)
 - [Liara Console](https://console.liara.ir)
 - [Model Context Protocol](https://modelcontextprotocol.io)
 
 ## Disclaimer
 
-This is an **unofficial** MCP server implementation for Liara. It is:
-- Not affiliated with, endorsed by, or supported by Liara
-- Maintained by the community
-- Provided as-is without warranty
-
-For official Liara support, please contact [Liara Support](https://liara.ir).
+Abroo is an **unofficial** implementation. It is not affiliated with, endorsed by, or supported by Liara, and is provided as-is without warranty. For official Liara support, contact [Liara Support](https://liara.ir).
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests on [GitHub](https://github.com/razavioo/liara-mcp).
+Issues and pull requests are welcome.
 
-## Support
+## License
 
-For issues related to:
-- **This MCP server**: Open an issue on [GitHub](https://github.com/razavioo/liara-mcp/issues)
-- **Liara platform**: Contact [Liara Support](https://liara.ir)
-- **MCP protocol**: See [MCP Documentation](https://modelcontextprotocol.io)
+MIT
