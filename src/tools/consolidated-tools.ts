@@ -33,10 +33,8 @@ export function getConsolidatedTools(): ToolDefinition[] {
                         type: 'string',
                         description: 'Plan ID (required for create and resize)',
                     },
-                    region: {
-                        type: 'string',
-                        description: 'Deployment region (optional for create)',
-                    },
+                    bundlePlanID: {type:'string',description:'Feature bundle ID for app create'},
+                    network: {type:'string',description:'Verified network name or ID for app create'},
                     ...getPaginationProperties(),
                 },
                 required: ['action'],

@@ -7,7 +7,7 @@ export function getPlanTools(): ToolDefinition[] {
     return [
         {
             name: 'liara_list_plans',
-            description: 'List available plans (apps, databases, or VMs)',
+            description: 'READ ONLY: list account/team plan IDs and featureBundles from documented GET /v1/me; not from unsupported /v1/plans',
             inputSchema: {
                 type: 'object',
                 properties: {

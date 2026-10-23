@@ -50,7 +50,7 @@ export async function handleConsolidatedTools(
  * Handle app management operations
  */
 async function handleAppManagement(client: LiaraClient, args: any): Promise<ToolResult> {
-    const { action, name, platform, planID, region, page, perPage } = args;
+    const { action, name, platform, planID, bundlePlanID, network, page, perPage } = args;
 
     switch (action) {
         case 'list':
@@ -70,7 +70,7 @@ async function handleAppManagement(client: LiaraClient, args: any): Promise<Tool
             if (!name || !platform || !planID) {
                 throw new Error('name, platform, and planID are required for create action');
             }
-            const createdApp = await appService.createApp(client, { name, platform, planID, region });
+            const createdApp = await appService.createApp(client, { name, platform, planID, bundlePlanID, network });
             return {
                 content: [{ type: 'text', text: JSON.stringify(createdApp, null, 2) }],
             };
@@ -97,10 +97,9 @@ async function handleAppManagement(client: LiaraClient, args: any): Promise<Tool
             };
 
         case 'restart':
-            if (!name) throw new Error('App name is required for restart action');
-            await appService.restartApp(client, name);
+            const target=await appService.restartApp(client, name);
             return {
-                content: [{ type: 'text', text: `App '${name}' restarted successfully` }],
+                content: [{ type: 'text', text: `Restart request accepted for '${target}'. Check its state before reporting healthy.` }],
             };
 
         case 'resize':

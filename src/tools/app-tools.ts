@@ -30,7 +30,7 @@ export function getAppTools(): ToolDefinition[] {
         },
         {
             name: 'liara_create_app',
-            description: 'Create a new app',
+            description: 'Create an app with verified plan/bundle/network from the selected Liara account. Requires bundlePlanID when multiple bundles are available.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -47,10 +47,8 @@ export function getAppTools(): ToolDefinition[] {
                         type: 'string',
                         description: 'Plan ID for the app',
                     },
-                    region: {
-                        type: 'string',
-                        description: 'Deployment region (optional)',
-                    },
+                    bundlePlanID: {type:'string', description:'Feature bundle ID from liara_list_plans (e.g. basic). Required if selection is ambiguous.'},
+                    network: {type:'string', description:'Network name or _id from liara_list_networks; resolved to _id before API call.'},
                 },
                 required: ['name', 'platform', 'planID'],
             },
@@ -99,7 +97,7 @@ export function getAppTools(): ToolDefinition[] {
         },
         {
             name: 'liara_restart_app',
-            description: 'Restart an app',
+            description: 'Restart a specific app in configured team/account; omit name only if exactly one app is visible. The operation changes cloud runtime.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -108,7 +106,6 @@ export function getAppTools(): ToolDefinition[] {
                         description: 'The name of the app to restart',
                     },
                 },
-                required: ['name'],
             },
         },
         {

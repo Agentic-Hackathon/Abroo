@@ -5,6 +5,7 @@ import {
     paginationToParams,
 } from '../api/types.js';
 import { validateRequired } from '../utils/errors.js';
+import { normalizeNetworks } from './project-provisioning.js';
 
 /**
  * List all networks
@@ -14,7 +15,7 @@ export async function listNetworks(
     pagination?: PaginationOptions
 ): Promise<Network[]> {
     const params = paginationToParams(pagination);
-    return await client.get<Network[]>('/v1/networks', params);
+    return normalizeNetworks(await client.get<any>('/v1/networks', params)) as Network[];
 }
 
 /**

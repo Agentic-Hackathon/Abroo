@@ -64,7 +64,7 @@ class LiaraMcpServer {
     }
 
     private setupCallToolHandler() {
-        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        this.server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             const { name, arguments: args } = request.params;
             return handleToolCall(this.client, name, args);
         });

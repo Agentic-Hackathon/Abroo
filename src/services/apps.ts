@@ -8,6 +8,7 @@ import {
     paginationToParams,
 } from '../api/types.js';
 import { validateAppName, validateRequired, unwrapApiResponse } from '../utils/errors.js';
+import { resolveProvisioning } from './project-provisioning.js';
 
 /**
  * List all apps/projects
@@ -60,10 +61,13 @@ export async function createApp(
     validateAppName(request.name);
     validateRequired(request.platform, 'Platform');
     validateRequired(request.planID, 'Plan ID');
-    // Network is optional in schema but will be passed to API if provided
-    // API will return error if network is required but not provided
-
-    return await client.post<Project>('/v1/projects', request);
+    const chosen = await resolveProvisioning(client, request);
+    // Only the documented create payload; `region` is not accepted by this endpoint.
+    return await client.post<Project>('/v1/projects', {
+        name: request.name, platform: request.platform, planID: chosen.planID,
+        bundlePlanID: chosen.bundlePlanID, network: chosen.network,
+        ...(request.readOnlyRootFilesystem !== undefined ? {readOnlyRootFilesystem:request.readOnlyRootFilesystem} : {}),
+    });
 }
 
 /**
@@ -114,15 +118,31 @@ export async function scaleApp(
     await client.post(`/v1/projects/${name}/actions/scale`, { scale: replicas });
 }
 
-/**
- * Restart an app
+/** Resolve a project ID in this account/team before calling mutations.
+ * If no name was given, infer ONLY when the account contains exactly one app.
  */
-export async function restartApp(
-    client: LiaraClient,
-    name: string
-): Promise<void> {
+export async function resolveRestartTarget(client: LiaraClient, name?: string): Promise<string> {
+    const apps = await listApps(client);
+    const targets = apps.map((p:any)=>p.project_id ?? p.name).filter((x:any)=>typeof x==='string');
+    if (!name) {
+        if (targets.length!==1) throw new Error(`Specify an exact app name for restart. Visible apps in selected account/team: ${targets.join(', ') || '(none)'}.`);
+        return targets[0];
+    }
     validateAppName(name);
-    await client.post(`/v1/projects/${name}/actions/restart`);
+    if (!targets.includes(name)) throw new Error(`App '${name}' is not visible in the configured Liara account/team. Available: ${targets.join(', ') || '(none)'}. Check LIARA_TEAM_ID and API token.`);
+    return name;
+}
+/** Restart using the documented endpoint. An accepted request isn't proof the app is healthy. */
+export async function restartApp(client: LiaraClient, name?: string): Promise<string> {
+    const target = await resolveRestartTarget(client, name);
+    try { await client.post(`/v1/projects/${encodeURIComponent(target)}/actions/restart`); }
+    catch (error) {
+        const e=error as {statusCode?:number;message?:string};
+        if (e.statusCode===404 || /Project not found/i.test(e.message || ''))
+            throw new Error(`Liara rejected restart for '${target}' (Project not found). Verify the active token/team and re-list apps; no restart was confirmed.`);
+        throw error;
+    }
+    return target;
 }
 
 /**

@@ -61,6 +61,9 @@ export function getAllTools(): ToolDefinition[] {
             ...getDiagnoseTools(),
             ...getRemediationTools(),
             ...getGuidedDeployTools(),
+            ...getUserTools(),
+            ...getPlanTools(),
+            ...getNetworkTools(),
         ];
     } else {
         // Individual mode: granular tools (legacy)

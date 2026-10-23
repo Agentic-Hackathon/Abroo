@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import type { LiaraClient } from '../handlers/types.js';
 import { validateAppName } from '../utils/errors.js';
 import * as apps from '../services/apps.js';
+import {resolveProvisioning, type ProvisioningSelection} from '../services/project-provisioning.js';
 import { deployRelease, uploadSource } from '../services/deployment.js';
 import type { Platform } from '../api/types.js';
 
@@ -33,7 +34,8 @@ interface LocalInfo {
 interface Prepared {
   id: string; created: number; inProgress: boolean;
   app: string; directory: string; platform: Platform; port: number;
-  planID?: string; network?: string; readOnlyRootFilesystem?: boolean;
+  planID?: string; bundlePlanID?: string; network?: string; readOnlyRootFilesystem?: boolean;
+  selection?: ProvisioningSelection;
   expectedAppState: string | null; signatures: string;
   files: FileRecord[]; create: boolean;
 }
@@ -123,7 +125,7 @@ export async function deployPreflight(client: LiaraClient, directory: string, ap
 
 export async function prepareDeploy(client: LiaraClient, input: {
   directory: string; appName?: string; platform?: string; port?: number;
-  planID?: string; network?: string; readOnlyRootFilesystem?: boolean;
+  planID?: string; bundlePlanID?: string; network?: string; readOnlyRootFilesystem?: boolean;
 }) {
   const info = await collectFiles(input.directory);
   const app = input.appName ?? info.app;
@@ -140,18 +142,29 @@ export async function prepareDeploy(client: LiaraClient, input: {
   const remote = await remoteProject(client, app);
   if (!remote && !input.planID) throw new Error('App not found in configured account/team. Specify planID to create it; discover plans first.');
   if (input.planID && !/^[a-zA-Z0-9_-]{2,100}$/.test(input.planID)) throw new Error('Invalid planID');
+  // Complete all billable resource validation while the plan is still read-only.
+  // Network name -> _id and a selectable feature bundle are frozen into preview.
+  const selection = !remote ? await resolveProvisioning(client, {
+    planID:input.planID as string,bundlePlanID:input.bundlePlanID,network:input.network,
+  },true) : undefined;
   const id = randomUUID();
   const now = Date.now();
   for (const [key, val] of pending) if (now - val.created > TTL_MS) pending.delete(key);
   if (pending.size >= MAX_PENDING) throw new Error('Too many pending deployments; retry later.');
   pending.set(id, { id, created: now, inProgress: false, app, directory: info.directory, platform: platform as Platform,
-    port: port as number, planID: input.planID, network: input.network,
+    port: port as number, planID: input.planID, bundlePlanID:selection?.bundlePlanID, network:selection?.network,
+    selection,
     readOnlyRootFilesystem: input.readOnlyRootFilesystem,
     expectedAppState: remoteState(remote), signatures: signature(info), files: info.files, create: !remote });
   return {
     planId: id, expiresAt: new Date(now + TTL_MS).toISOString(), appName: app, directory: info.directory,
     platform, port, action: remote ? 'REPLACE_CURRENT_RELEASE' : 'CREATE_APP_AND_DEPLOY',
     planID: remote ? (remote.project ?? remote).planID : input.planID,
+    bundlePlanID: selection?.bundlePlanID,
+    bundlePrice: selection?.bundlePrice,
+    network: selection?.network,
+    networkName: selection?.networkName,
+    selectionNotes: selection?.selectionNotes,
     fileCount: info.files.length, archiveInputBytes: info.totalBytes, excludedEntries: info.ignored,
     warnings: info.warnings.concat(remote
       ? ['The new release will replace the currently deployed code on this app.']
@@ -187,6 +200,13 @@ export async function applyDeploy(client: LiaraClient, planId: string, confirmat
     if (signature(info) !== plan.signatures) throw new Error('Local source inventory changed since preview; prepare again.');
     const remote = await remoteProject(client, plan.app);
     if (remoteState(remote) !== plan.expectedAppState) throw new Error('Remote app state changed since preview; prepare again.');
+    if (!remote) {
+      if (!plan.selection) throw new Error('Missing validated app creation selection in preview.');
+      const refreshed = await resolveProvisioning(client, {planID:plan.selection.planID,
+        bundlePlanID:plan.selection.bundlePlanID,network:plan.selection.network},false);
+      if (refreshed.network!==plan.selection.network || refreshed.bundlePlanID!==plan.selection.bundlePlanID ||
+          refreshed.bundlePrice!==plan.selection.bundlePrice) throw new Error('App creation options changed since preview; prepare again.');
+    }
     tempRoot = await fs.mkdtemp(join(tmpdir(), 'liara-mcp-deploy-'));
     const stage = join(tempRoot, 'stage');
     await fs.mkdir(stage);
@@ -206,7 +226,8 @@ export async function applyDeploy(client: LiaraClient, planId: string, confirmat
       step = 'create-app';
       await apps.createApp(client, {
         name: plan.app, platform: plan.platform, planID: plan.planID as string,
-        ...(plan.network ? {network: plan.network}: {}),
+        bundlePlanID: plan.bundlePlanID,
+        network: plan.network,
         ...(plan.readOnlyRootFilesystem !== undefined ? {readOnlyRootFilesystem: plan.readOnlyRootFilesystem} : {}),
       });
     }

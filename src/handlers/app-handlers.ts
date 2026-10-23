@@ -26,7 +26,7 @@ export async function handleAppTools(
             return jsonResponse({
                 success: true,
                 data: app,
-                message: `App "${app.name}" created successfully`
+                message: `Liara accepted create-app request for "${args.name}"; inspect liara_get_app to verify the app is active.`
             });
         }
 
@@ -46,8 +46,8 @@ export async function handleAppTools(
         }
 
         case 'liara_restart_app': {
-            await appService.restartApp(client, args!.name as string);
-            return successResponse(`App "${args!.name}" restarted successfully.`);
+            const target = await appService.restartApp(client, args?.name as string | undefined);
+            return successResponse(`Restart request accepted for app "${target}". Check app status to confirm it is running.`);
         }
 
         case 'liara_resize_app': {
